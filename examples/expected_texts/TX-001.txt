@@ -1,0 +1,3 @@
+Customer called about invoice
+
+Follow-up required with Partij A for EUR 1000.

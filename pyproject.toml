@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "parse-freetext"
+version = "0.1.0"
+description = "Extract free-text fields from XLSX files into transaction-named text files."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "openpyxl>=3.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+parse-freetext = "parse_freetext.cli:main"
+parse-freetext-ollama = "parse_freetext.ollama_parser:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
