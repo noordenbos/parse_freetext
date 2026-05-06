@@ -141,6 +141,108 @@ Copy-Item examples/rulebook.example.txt rules/ollama_rulebook.txt
 
 Edit `rules/ollama_rulebook.txt` for your own use case. This file is ignored by Git and should be treated as local/private.
 
+<details>
+<summary>Rulebook format and best practices</summary>
+
+The Ollama parser adds your rulebook to every prompt. Keep private client, dossier, investigation, and internal methodology details out of committed files.
+
+Use this structure:
+
+```text
+Output columns:
+- record_id (string)
+- row_id (integer)
+- clinical_item (string)
+- value (number)
+- unit (string)
+- qualitative_status (string)
+- event_date (string)
+- details (string)
+
+Python-filled fields:
+- record_id
+- row_id
+
+Inherited fields:
+- event_date (string)
+
+Rules:
+- clinical_item: extracted medical item.
+- value: numeric value when present.
+- unit: measurement unit or coding label.
+- qualitative_status: present, absent, improved, worsened, stable, or omitted.
+- event_date: shared dates or periods top-level; row value only for a specific item date.
+- details: concise source-grounded summary.
+```
+
+Best practices:
+
+- Add an `Output columns:` section near the top so the CLI can build the Ollama JSON schema and CSV headers.
+- Keep `Output columns:` structural: declare only `- column_name (type)` so the parser can build columns, aliases, and schema.
+- Use only `string`, `number`, `integer`, or `boolean` as column types.
+- Use snake_case column names, such as `record_id`, `row_id`, `clinical_item`, and `event_date`.
+- Put behavioral instructions in `Rules:`, including field meanings, row splitting, normalization, and what to do when information is missing.
+- Fields such as `transaction_id_parent`, `record_id`, `sub_id`, and `row_id` are filled by Python after extraction and are omitted from the model-facing aliases/schema.
+- Add an optional `Inherited fields:` section for columns that are often shared by many rows, such as a global date period. Keep it structural too.
+- Test changes with `--prompts-only` first, then inspect a few generated prompts before running a model.
+
+The CLI validates the structural sections before generating prompts. If a field bullet is malformed, uses an unsupported type, duplicates a column, or references an inherited/Python-filled field that is not an output column, it stops with a `Rulebook structural format warning` and a short formatting walkthrough.
+
+To reduce prompt and response size, the Ollama request uses compact JSON aliases internally, skips Python-filled fields, and asks the model to omit unknown/null properties. The regular CSV and JSONL outputs still use the readable column names from the rulebook, with missing values filled as null/empty cells by Python.
+
+If no `Output columns:` section is found, the CLI falls back to neutral medical-example columns.
+
+</details>
+
+<details>
+<summary>Optional LLM prompt for drafting a rulebook</summary>
+
+You can use your favorite LLM to draft the first version of a rulebook. Do not paste sensitive source text into a cloud model. A good safe input is the target output columns you want and, if relevant, the column names from the spreadsheet or source table that will feed the parser.
+
+Copy and adapt this prompt:
+
+```text
+Help me write a concise rulebook for parse-freetext-ollama.
+
+The rulebook must have these sections only:
+
+Output columns:
+- column_name (type)
+
+Python-filled fields:
+- column_name
+
+Inherited fields:
+- column_name (type)
+
+Rules:
+- column_name: short extraction rule.
+
+Formatting requirements:
+- Use snake_case column names.
+- Use only these types: string, number, integer, boolean.
+- Keep Output columns structural only: no long instructions in that section.
+- Put all interpretation, normalization, row splitting, and missing-value behavior in Rules.
+- Mark fields that Python should fill, such as record_id, row_id, transaction_id_parent, or sub_id, under Python-filled fields.
+- Mark fields that are often shared by many rows, such as document_context or event_date, under Inherited fields.
+- Keep rules concise and source-grounded.
+- Avoid repeating the same instruction in multiple fields.
+- Do not include private examples or sensitive source text.
+
+My intended output columns are:
+[paste target output columns here]
+
+Source spreadsheet/table columns that may help define the rulebook are:
+[paste non-sensitive column names here]
+
+Use case:
+[briefly describe the parsing goal without sensitive details]
+```
+
+After saving the generated rulebook locally, run `--prompts-only` and inspect a few prompt files before calling Ollama.
+
+</details>
+
 ### 6. Generate Prompts Without Calling A Model
 
 Always do this first after changing a rulebook:
@@ -240,63 +342,6 @@ Useful options:
 If parsing fails for a file after all retries, the CSV and JSONL include a failure row. For custom schemas, the error is written to `details`, `notes`, or another available detail field when one exists.
 
 The command prints a Python-side run summary with file counts, attempts, records, wall time, and aggregated Ollama token/timing stats when the API returns them. The call log writes one JSON object per Ollama attempt with model settings, timing, token counts, response sizes, record counts, and errors. It does not store prompts, source text, or model response text.
-
-## Rulebooks
-
-The Ollama parser can add a user-provided rulebook to every prompt. By default it looks for:
-
-```text
-rules/ollama_rulebook.txt
-```
-
-That local path is ignored by Git, so it is a good place for project-specific rules that should not be committed. The included example uses synthetic medical dossier parsing to show qualitative, discrete, and continuous field extraction without exposing real sensitive content.
-
-Rulebook format:
-
-- Keep private client, dossier, investigation, and internal methodology details out of committed files.
-- Add an `Output columns:` section near the top so the CLI can build the Ollama JSON schema and CSV headers.
-- Keep `Output columns:` structural: declare only `- column_name (type)` so the parser can build columns, aliases, and schema.
-- Use only `string`, `number`, `integer`, or `boolean` as column types.
-- Use snake_case column names, such as `record_id`, `row_id`, `clinical_item`, and `event_date`.
-- Put behavioral instructions in `Rules:`, including field meanings, row splitting, normalization, and what to do when information is missing.
-- Fields such as `transaction_id_parent`, `record_id`, `sub_id`, and `row_id` are filled by Python after extraction and are omitted from the model-facing aliases/schema.
-- Add an optional `Inherited fields:` section for columns that are often shared by many rows, such as a global date period. Keep it structural too.
-- Test changes with `--prompts-only` first, then inspect a few generated prompts before running a model.
-
-The CLI validates the structural sections before generating prompts. If a field bullet is malformed, uses an unsupported type, duplicates a column, or references an inherited/Python-filled field that is not an output column, it stops with a `Rulebook structural format warning` and prints a short format walkthrough.
-
-Example structure:
-
-```text
-Output columns:
-- record_id (string)
-- row_id (integer)
-- clinical_item (string)
-- value (number)
-- unit (string)
-- qualitative_status (string)
-- event_date (string)
-- details (string)
-
-Python-filled fields:
-- record_id
-- row_id
-
-Inherited fields:
-- event_date (string)
-
-Rules:
-- clinical_item: extracted medical item.
-- value: numeric value when present.
-- unit: measurement unit or coding label.
-- qualitative_status: present, absent, improved, worsened, stable, or omitted.
-- event_date: shared dates or periods top-level; row value only for a specific item date.
-- details: concise source-grounded summary.
-```
-
-To reduce prompt and response size, the Ollama request uses compact JSON aliases internally, skips Python-filled fields, and asks the model to omit unknown/null properties. The regular CSV and JSONL outputs still use the readable column names from the rulebook, with missing values filled as null/empty cells by Python.
-
-If no `Output columns:` section is found, the CLI falls back to neutral medical-example columns.
 
 ## Helper CLI: Spreadsheet To Text
 
