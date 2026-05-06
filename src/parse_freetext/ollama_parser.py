@@ -1309,20 +1309,20 @@ def process_folder(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="parse-freetext-ollama",
-        description="Parse extracted text files into structured records with Ollama.",
+        description="Parse prepared text input files into structured records with Ollama.",
     )
     parser.add_argument(
         "input_dir",
         nargs="?",
         type=Path,
-        help="Folder containing extracted *.txt files.",
+        help="Prepared text input folder containing {id}.txt files.",
     )
     parser.add_argument(
         "--input-dir",
         "--input_dir",
         dest="input_dir_flag",
         type=Path,
-        help="Folder containing extracted *.txt files.",
+        help="Prepared text input folder containing {id}.txt files.",
     )
     parser.add_argument("--model", default="qwen2.5:14b", help="Ollama model name.")
     parser.add_argument(

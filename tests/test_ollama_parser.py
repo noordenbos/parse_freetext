@@ -2,6 +2,8 @@ import csv
 import json
 from pathlib import Path
 
+import pytest
+
 from parse_freetext import ollama_parser
 from parse_freetext.ollama_parser import (
     add_call_stats,
@@ -765,7 +767,7 @@ Output columns:
         if args == ["status", "--short"]:
             return " M README.md"
         if args == ["describe", "--tags", "--exact-match"]:
-            return "1.0.0"
+            return "1.1.0"
         if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
             return "main"
         if args == ["rev-parse", "HEAD"]:
@@ -789,9 +791,9 @@ Output columns:
     )
 
     metadata = run_metadata.read_text(encoding="utf-8")
-    assert "package_version: 1.0.0" in metadata
+    assert "package_version: 1.1.0" in metadata
     assert "status: completed" in metadata
-    assert "git_exact_tag: 1.0.0" in metadata
+    assert "git_exact_tag: 1.1.0" in metadata
     assert "git_dirty: yes" in metadata
     assert "parse-freetext-ollama texts --output medical" in metadata
     assert "rows_written: 1" in metadata
@@ -895,6 +897,15 @@ def test_main_derives_outputs_from_single_output_name(tmp_path: Path, monkeypatc
     )
     assert captured["prompt_output_dir"] == Path("output/final_test_qwen35/prompts")
     assert captured["run_metadata"] == Path("output/final_test_qwen35/run_metadata.txt")
+
+
+def test_main_help_describes_prepared_text_input(capsys) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--help"])
+
+    assert exc_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "Prepared text input folder containing {id}.txt files" in output
 
 
 def test_main_prints_rulebook_format_walkthrough(

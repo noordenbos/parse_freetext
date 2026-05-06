@@ -4,13 +4,19 @@
 
 The main workflow is:
 
-1. Put source free text in a folder as `{id}.txt` files, either manually or with a helper such as `spreadsheet-helper`.
+1. Put raw source data under `input/raw/<project>/`, or start from prepared `{id}.txt` files under `input/texts/<project>/`.
 2. Write a local rulebook that defines output columns and extraction rules, optionally with help from an LLM.
 3. Generate compact prompts with the toolkit.
 4. Inspect and optimize prompts interactively in Ollama.
 5. Run batched processing through a local Ollama model and write readable CSV/JSONL output.
 
-Helper tools can create the input `.txt` files from source formats. Today this repo includes `spreadsheet-helper` for `.xlsx`, `.csv`, and `.tsv`; future helpers may support other text sources.
+Key folders:
+
+- Raw input data: original spreadsheets, CSV/TSV files, or other source files. Recommended private path: `input/raw/<project>/`.
+- Prepared text input: `{id}.txt` files consumed by `parse-freetext-ollama`. Recommended private path: `input/texts/<project>/`.
+- Run output: CSV/JSONL/prompts/logs/metadata written by the parser. Default path: `output/<run>/`.
+
+Helper tools can create prepared `.txt` input files from raw source formats. Today this repo includes `spreadsheet-helper` for `.xlsx`, `.csv`, and `.tsv`; future helpers may support other text sources.
 
 ## Full Setup Walkthrough
 
@@ -91,11 +97,11 @@ uv run pytest
 
 ### 4. Prepare Text Files
 
-If you already have free text files, put them in a folder like this:
+If you already have prepared free text files, put them in a folder like this:
 
 ```text
-output/example_texts/CASE-001.txt
-output/example_texts/CASE-002.txt
+input/texts/example_project/CASE-001.txt
+input/texts/example_project/CASE-002.txt
 ```
 
 If your source is a spreadsheet, use `spreadsheet-helper` to create those `.txt` files.
@@ -106,28 +112,38 @@ If your source is a spreadsheet, use `spreadsheet-helper` to create those `.txt`
 First inspect the example workbook:
 
 ```bash
-uv run spreadsheet-helper examples/sample_transactions.xlsx --inspect
+uv run spreadsheet-helper input/example_project/raw/sample_transactions.xlsx --inspect
 ```
 
-Then extract selected free-text columns:
+Then extract selected free-text columns. If you omit `--text-output-dir`, the helper writes to `input/texts/sample_transactions/` because the raw file is named `sample_transactions.xlsx`.
 
 ```bash
-uv run spreadsheet-helper examples/sample_transactions.xlsx \
+uv run spreadsheet-helper input/example_project/raw/sample_transactions.xlsx \
   --transaction-id-column "Transaction ID" \
   --text-column Notes \
   --text-column Description \
-  --output-dir output/example_texts \
+  --overwrite
+```
+
+For this walkthrough, write to the example project text folder:
+
+```bash
+uv run spreadsheet-helper input/example_project/raw/sample_transactions.xlsx \
+  --transaction-id-column "Transaction ID" \
+  --text-column Notes \
+  --text-column Description \
+  --text-output-dir input/texts/example_project \
   --overwrite
 ```
 
 On Windows PowerShell, use backticks for line continuation:
 
 ```powershell
-uv run spreadsheet-helper examples/sample_transactions.xlsx `
+uv run spreadsheet-helper input/example_project/raw/sample_transactions.xlsx `
   --transaction-id-column "Transaction ID" `
   --text-column Notes `
   --text-column Description `
-  --output-dir output/example_texts `
+  --text-output-dir input/texts/example_project `
   --overwrite
 ```
 
@@ -143,14 +159,14 @@ macOS/Linux:
 
 ```bash
 mkdir -p rules
-cp examples/rulebook.example.txt rules/ollama_rulebook.txt
+cp input/example_project/rulebook.example.txt rules/ollama_rulebook.txt
 ```
 
 Windows PowerShell:
 
 ```powershell
 New-Item -ItemType Directory -Force rules
-Copy-Item examples/rulebook.example.txt rules/ollama_rulebook.txt
+Copy-Item input/example_project/rulebook.example.txt rules/ollama_rulebook.txt
 ```
 
 Edit `rules/ollama_rulebook.txt` for your own use case. This file is ignored by Git and should be treated as local/private.
@@ -267,7 +283,7 @@ After saving the generated rulebook locally, run `--prompts-only` and inspect a 
 Always do this first after changing a rulebook:
 
 ```bash
-uv run parse-freetext-ollama output/example_texts \
+uv run parse-freetext-ollama input/texts/example_project \
   --prompts-only \
   --prompt-output-dir output/example_prompts
 ```
@@ -337,7 +353,7 @@ Optimize for the best response quality at the lowest acceptable token and time c
 After editing `rules/ollama_rulebook.txt`, regenerate prompts and repeat:
 
 ```bash
-uv run parse-freetext-ollama output/example_texts \
+uv run parse-freetext-ollama input/texts/example_project \
   --prompts-only \
   --prompt-output-dir output/example_prompts
 ```
@@ -349,7 +365,7 @@ uv run parse-freetext-ollama output/example_texts \
 This calls the local Ollama API, so it can use CPU/GPU resources. Start with a small input folder.
 
 ```bash
-uv run parse-freetext-ollama output/example_texts \
+uv run parse-freetext-ollama input/texts/example_project \
   --model qwen3.5:9b \
   --output example_records
 ```
@@ -369,10 +385,10 @@ The regular CSV and JSONL use readable column names. The compact JSONL is mostly
 
 ## Main CLI: Parse With Ollama
 
-`parse-freetext-ollama` is the main command. It reads `.txt` files from a folder, builds prompts from a local rulebook, calls Ollama unless `--prompts-only` is used, and writes structured output.
+`parse-freetext-ollama` is the main command. It reads prepared `{id}.txt` input files from a folder, builds prompts from a local rulebook, calls Ollama unless `--prompts-only` is used, and writes structured output.
 
 ```bash
-uv run parse-freetext-ollama output/texts \
+uv run parse-freetext-ollama input/texts/example_project \
   --model qwen3.5:9b \
   --output records_extracted
 ```
@@ -417,7 +433,7 @@ The command prints a Python-side run summary with file counts, attempts, records
 
 ## Helper CLI: Spreadsheet To Text
 
-`spreadsheet-helper` is a small helper for creating input `.txt` files for `parse-freetext-ollama`. It is intentionally secondary to the Ollama parser.
+`spreadsheet-helper` is a small helper for creating prepared input `.txt` files for `parse-freetext-ollama`. It is intentionally secondary to the Ollama parser.
 
 Supported formats:
 
@@ -431,28 +447,28 @@ Supported formats:
 Inspect a spreadsheet-like input:
 
 ```bash
-uv run spreadsheet-helper examples/sample_transactions.xlsx --inspect
+uv run spreadsheet-helper input/example_project/raw/sample_transactions.xlsx --inspect
 ```
 
 Extract text from selected columns:
 
 ```bash
-uv run spreadsheet-helper examples/sample_transactions.xlsx \
+uv run spreadsheet-helper input/example_project/raw/sample_transactions.xlsx \
   --sheet Transactions \
   --sheet Archive \
   --transaction-id-column "Transaction ID" \
   --text-column Notes \
   --text-column Description \
-  --output-dir output/texts
+  --text-output-dir input/texts/example_project
 ```
 
 For CSV/TSV, omit `--sheet`:
 
 ```bash
-uv run spreadsheet-helper input/my_records.csv \
+uv run spreadsheet-helper input/raw/my_project/my_records.csv \
   --transaction-id-column "Record ID" \
   --text-column Notes \
-  --output-dir output/texts
+  --text-output-dir input/texts/my_project
 ```
 
 Column references can be:
@@ -466,7 +482,7 @@ Useful options:
 - `--inspect`: print sheet/table names and headers.
 - `--sheet`: worksheet tab to process for `.xlsx` files. Repeat it for multiple tabs. If omitted, all sheets are processed.
 - `--text-column`: free-text column to extract. Repeat it to combine multiple columns into one text file.
-- `--output-dir`: output folder. Defaults to `output/texts`.
+- `--text-output-dir`: prepared text input folder. Defaults to `input/texts/<input_file_stem>`.
 - `--overwrite`: replace existing output files.
 - `--append-sheet-name`: append the sheet name to each filename to avoid cross-sheet collisions for `.xlsx` files.
 
@@ -492,13 +508,14 @@ Committed:
 
 - Source code under `src/`
 - Tests under `tests/`
-- Sanitized examples under `examples/`
+- Sanitized example project under `input/example_project/`
 - `README.md`, `LICENSE`, `pyproject.toml`, `uv.lock`, and `.gitignore`
 
 Ignored:
 
-- Local input workbooks under `input/`
-- Generated text, prompt, CSV, and JSONL outputs under `output/`
+- Private raw source files under `input/raw/`
+- Private prepared text inputs under `input/texts/`
+- Generated prompt, CSV, JSONL, call-log, and metadata outputs under `output/`
 - Local extraction rules under `rules/ollama_rulebook.txt`
 - Virtual environments, caches, build metadata, and operating-system files
 

@@ -7,12 +7,22 @@ import sys
 from .extractor import ExtractionError, extract_text_files, inspect_spreadsheet
 
 
+DEFAULT_TEXT_INPUT_ROOT = Path("input/texts")
+
+
+def default_text_output_dir(input_file: Path) -> Path:
+    return DEFAULT_TEXT_INPUT_ROOT / input_file.stem
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="spreadsheet-helper",
-        description="Extract free-text columns from XLSX/CSV/TSV files into {record_id}.txt files.",
+        description=(
+            "Extract free-text columns from raw XLSX/CSV/TSV data into prepared "
+            "{record_id}.txt input files for parse-freetext-ollama."
+        ),
     )
-    parser.add_argument("input_file", type=Path, help="Path to the input .xlsx, .csv, or .tsv file.")
+    parser.add_argument("input_file", type=Path, help="Path to the raw .xlsx, .csv, or .tsv input file.")
     parser.add_argument(
         "--inspect",
         action="store_true",
@@ -20,10 +30,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "-o",
-        "--output-dir",
+        "--text-output-dir",
         type=Path,
-        default=Path("output/texts"),
-        help="Directory where extracted .txt files are written. Default: output/texts",
+        dest="text_output_dir",
+        help=(
+            "Directory where prepared .txt input files are written. "
+            "Default: input/texts/<input_file_stem>"
+        ),
     )
     parser.add_argument(
         "-s",
@@ -77,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
 
         result = extract_text_files(
             input_file=args.input_file,
-            output_dir=args.output_dir,
+            output_dir=args.text_output_dir or default_text_output_dir(args.input_file),
             sheets=args.sheets,
             transaction_id_column=args.transaction_id_column,
             text_columns=args.text_columns,

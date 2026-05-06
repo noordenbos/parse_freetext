@@ -207,3 +207,54 @@ def test_cli_reports_csv_sheet_option(tmp_path: Path, capsys) -> None:
     ) == 2
     captured = capsys.readouterr()
     assert "--sheet is only supported" in captured.err
+
+
+def test_cli_derives_default_prepared_text_output_dir(tmp_path: Path, monkeypatch, capsys) -> None:
+    input_file = tmp_path / "raw_records.csv"
+    input_file.write_text("Record ID,Notes\nC-001,CSV note\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    assert cli.main(
+        [
+            str(input_file),
+            "--transaction-id-column",
+            "Record ID",
+            "--text-column",
+            "Notes",
+        ]
+    ) == 0
+
+    output_file = tmp_path / "input" / "texts" / "raw_records" / "C-001.txt"
+    assert output_file.read_text(encoding="utf-8") == "CSV note\n"
+    assert "input/texts/raw_records" in capsys.readouterr().out
+
+
+def test_cli_accepts_explicit_text_output_dir(tmp_path: Path) -> None:
+    input_file = tmp_path / "raw_records.csv"
+    output_dir = tmp_path / "prepared_texts"
+    input_file.write_text("Record ID,Notes\nC-001,CSV note\n", encoding="utf-8")
+
+    assert cli.main(
+        [
+            str(input_file),
+            "--transaction-id-column",
+            "Record ID",
+            "--text-column",
+            "Notes",
+            "--text-output-dir",
+            str(output_dir),
+        ]
+    ) == 0
+
+    assert (output_dir / "C-001.txt").read_text(encoding="utf-8") == "CSV note\n"
+
+
+def test_cli_help_uses_prepared_text_output_wording(capsys) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["--help"])
+
+    assert exc_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "--text-output-dir" in output
+    assert "--output-dir" not in output
+    assert "prepared" in output

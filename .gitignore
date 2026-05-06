@@ -7,6 +7,10 @@ __pycache__/
 build/
 dist/
 input/
+!input/
+input/*
+!input/example_project/
+!input/example_project/**
 output/
 *.csv
 *.jsonl

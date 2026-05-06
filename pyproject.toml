@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "parse-freetext"
-version = "1.0.0"
+version = "1.1.0"
 description = "Parse free-text records locally with Ollama and helper tools."
 readme = "README.md"
 requires-python = ">=3.10"
