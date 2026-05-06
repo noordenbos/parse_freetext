@@ -187,6 +187,10 @@ Rules:
 - qualitative_status: present, absent, improved, worsened, stable, or omitted.
 - event_date: shared dates or periods top-level; row value only for a specific item date.
 - details: concise source-grounded summary.
+
+Examples:
+- "LDL 3.2 mmol/L" -> clinical_item LDL, value 3.2, unit mmol/L.
+- "No fever reported" -> clinical_item fever, value 0, unit yes_no, qualitative_status absent.
 ```
 
 Best practices:
@@ -198,6 +202,7 @@ Best practices:
 - Put behavioral instructions in `Rules:`, including field meanings, row splitting, normalization, and what to do when information is missing.
 - Fields such as `transaction_id_parent`, `record_id`, `sub_id`, and `row_id` are filled by Python after extraction and are omitted from the model-facing aliases/schema.
 - Add an optional `Inherited fields:` section for columns that are often shared by many rows, such as a global date period. Keep it structural too.
+- Add a short `Examples:` section with synthetic examples when it helps resolve common ambiguities.
 - Test changes with `--prompts-only` first, then inspect a few generated prompts before running a model.
 
 The CLI validates the structural sections before generating prompts. If a field bullet is malformed, uses an unsupported type, duplicates a column, or references an inherited/Python-filled field that is not an output column, it stops with a `Rulebook structural format warning` and a short formatting walkthrough.
@@ -232,6 +237,9 @@ Inherited fields:
 Rules:
 - column_name: short extraction rule.
 
+Examples:
+- synthetic source phrase -> expected field values.
+
 Formatting requirements:
 - Use snake_case column names.
 - Use only these types: string, number, integer, boolean.
@@ -241,7 +249,7 @@ Formatting requirements:
 - Mark fields that are often shared by many rows, such as document_context or event_date, under Inherited fields.
 - Keep rules concise and source-grounded.
 - Avoid repeating the same instruction in multiple fields.
-- Add a short synthetic example section when it helps resolve common ambiguities.
+- Add a short `Examples:` section with synthetic examples when it helps resolve common ambiguities.
 
 My intended output columns are:
 [paste target output columns here]
@@ -349,11 +357,12 @@ uv run parse-freetext-ollama output/example_texts \
 This writes:
 
 ```text
-output/example_records.csv
-output/example_records.jsonl
-output/example_records.compact.jsonl
-output/example_records.ollama_calls.jsonl
-output/example_records_prompts/
+output/example_records/example_records.csv
+output/example_records/example_records.jsonl
+output/example_records/example_records.compact.jsonl
+output/example_records/example_records.ollama_calls.jsonl
+output/example_records/prompts/
+output/example_records/run_metadata.txt
 ```
 
 The regular CSV and JSONL use readable column names. The compact JSONL is mostly for debugging the alias-shaped model output.
@@ -368,7 +377,7 @@ uv run parse-freetext-ollama output/texts \
   --output records_extracted
 ```
 
-Relative `--output` values are written under `output/`. Prompts are saved by default.
+Relative `--output` values are written as dedicated run folders under `output/`. Prompts and run metadata are saved by default.
 
 <details>
 <summary>Outputs and command options</summary>
@@ -376,11 +385,12 @@ Relative `--output` values are written under `output/`. Prompts are saved by def
 The command above creates:
 
 ```text
-output/records_extracted.csv
-output/records_extracted.jsonl
-output/records_extracted.compact.jsonl
-output/records_extracted.ollama_calls.jsonl
-output/records_extracted_prompts/
+output/records_extracted/records_extracted.csv
+output/records_extracted/records_extracted.jsonl
+output/records_extracted/records_extracted.compact.jsonl
+output/records_extracted/records_extracted.ollama_calls.jsonl
+output/records_extracted/prompts/
+output/records_extracted/run_metadata.txt
 ```
 
 Useful options:
@@ -394,9 +404,9 @@ Useful options:
 - `--timeout`: HTTP timeout in seconds. Defaults to `300`.
 - `--retries`: retries per text file. Defaults to `2`.
 - `--think`: enable Ollama thinking mode. Defaults to off for structured extraction.
-- `--output`: base output name or path. Derives CSV, JSONL, compact JSONL, call-log JSONL, and prompt folder paths.
+- `--output`: base run folder name or path. Relative values are nested under `output/`.
 - `--prompt-output-dir`: override the derived prompt folder.
-- `--output-csv`, `--output-jsonl`, `--output-compact-jsonl`, `--call-log-jsonl`: override individual derived paths when needed.
+- `--output-csv`, `--output-jsonl`, `--output-compact-jsonl`, `--call-log-jsonl`, `--run-metadata`: override individual derived paths when needed.
 - `--no-call-log`: disable Ollama call logging.
 
 If parsing fails for a file after all retries, the CSV and JSONL include a failure row. For custom schemas, the error is written to `details`, `notes`, or another available detail field when one exists.

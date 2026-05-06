@@ -636,18 +636,21 @@ def test_compact_alias_response_omits_none_values() -> None:
 def test_derived_output_paths_nest_relative_names_under_output() -> None:
     paths = derived_output_paths(Path("final_test_qwen35"))
 
-    assert paths["csv"] == Path("output/final_test_qwen35.csv")
-    assert paths["jsonl"] == Path("output/final_test_qwen35.jsonl")
-    assert paths["compact_jsonl"] == Path("output/final_test_qwen35.compact.jsonl")
-    assert paths["call_log_jsonl"] == Path("output/final_test_qwen35.ollama_calls.jsonl")
-    assert paths["prompt_output_dir"] == Path("output/final_test_qwen35_prompts")
+    assert paths["run_dir"] == Path("output/final_test_qwen35")
+    assert paths["csv"] == Path("output/final_test_qwen35/final_test_qwen35.csv")
+    assert paths["jsonl"] == Path("output/final_test_qwen35/final_test_qwen35.jsonl")
+    assert paths["compact_jsonl"] == Path("output/final_test_qwen35/final_test_qwen35.compact.jsonl")
+    assert paths["call_log_jsonl"] == Path("output/final_test_qwen35/final_test_qwen35.ollama_calls.jsonl")
+    assert paths["prompt_output_dir"] == Path("output/final_test_qwen35/prompts")
+    assert paths["run_metadata"] == Path("output/final_test_qwen35/run_metadata.txt")
 
 
 def test_derived_output_paths_keep_absolute_paths() -> None:
     paths = derived_output_paths(Path("/tmp/final_test_qwen35.csv"))
 
-    assert paths["csv"] == Path("/tmp/final_test_qwen35.csv")
-    assert paths["jsonl"] == Path("/tmp/final_test_qwen35.jsonl")
+    assert paths["run_dir"] == Path("/tmp/final_test_qwen35")
+    assert paths["csv"] == Path("/tmp/final_test_qwen35/final_test_qwen35.csv")
+    assert paths["jsonl"] == Path("/tmp/final_test_qwen35/final_test_qwen35.jsonl")
 
 
 def test_process_folder_writes_optional_compact_jsonl(tmp_path: Path, monkeypatch) -> None:
@@ -740,6 +743,61 @@ Output columns:
     assert "prompt" not in entry
 
 
+def test_process_folder_writes_run_metadata(tmp_path: Path, monkeypatch) -> None:
+    input_dir = tmp_path / "texts"
+    input_dir.mkdir()
+    (input_dir / "MED-001.txt").write_text("LDL 3.2 mmol/L", encoding="utf-8")
+    rules_file = tmp_path / "rulebook.txt"
+    rules_file.write_text(
+        """
+Output columns:
+- record_id (string): filename stem.
+- row_id (integer): row number.
+- finding (string): clinical finding.
+""",
+        encoding="utf-8",
+    )
+
+    def fake_call_ollama(**kwargs):
+        return {"rs": [{"aa": "LDL"}]}
+
+    def fake_run_git_command(args):
+        if args == ["status", "--short"]:
+            return " M README.md"
+        if args == ["describe", "--tags", "--exact-match"]:
+            return "1.0.0"
+        if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
+            return "main"
+        if args == ["rev-parse", "HEAD"]:
+            return "abc123"
+        return ""
+
+    monkeypatch.setattr(ollama_parser, "call_ollama", fake_call_ollama)
+    monkeypatch.setattr(ollama_parser, "run_git_command", fake_run_git_command)
+
+    output_csv = tmp_path / "out" / "medical.csv"
+    output_jsonl = tmp_path / "out" / "medical.jsonl"
+    run_metadata = tmp_path / "out" / "run_metadata.txt"
+    process_folder(
+        input_dir,
+        output_csv,
+        output_jsonl,
+        "test-model",
+        rules_file=rules_file,
+        run_metadata=run_metadata,
+        command=["parse-freetext-ollama", "texts", "--output", "medical"],
+    )
+
+    metadata = run_metadata.read_text(encoding="utf-8")
+    assert "package_version: 1.0.0" in metadata
+    assert "status: completed" in metadata
+    assert "git_exact_tag: 1.0.0" in metadata
+    assert "git_dirty: yes" in metadata
+    assert "parse-freetext-ollama texts --output medical" in metadata
+    assert "rows_written: 1" in metadata
+    assert "LDL 3.2" not in metadata
+
+
 def test_normalize_records_removes_direction_only_transaction_details() -> None:
     rows = normalize_records(
         {
@@ -791,6 +849,28 @@ def test_prompts_only_uses_default_prompt_output_dir(
     assert (tmp_path / "output" / "prompts" / "TX-001_prompt.txt").exists()
 
 
+def test_prompts_only_with_output_uses_run_prompt_dir(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    input_dir = tmp_path / "texts"
+    input_dir.mkdir()
+    (input_dir / "TX-001.txt").write_text("Client receives EUR 50", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    assert main(
+        [
+            str(input_dir),
+            "--prompts-only",
+            "--rules-file",
+            "rules/ollama_rulebook.txt",
+            "--output",
+            "prompt_check",
+        ]
+    ) == 0
+    assert (tmp_path / "output" / "prompt_check" / "prompts" / "TX-001_prompt.txt").exists()
+
+
 def test_main_derives_outputs_from_single_output_name(tmp_path: Path, monkeypatch) -> None:
     input_dir = tmp_path / "texts"
     input_dir.mkdir()
@@ -805,11 +885,16 @@ def test_main_derives_outputs_from_single_output_name(tmp_path: Path, monkeypatc
     monkeypatch.setattr(ollama_parser, "process_folder", fake_process_folder)
 
     assert main([str(input_dir), "--output", "final_test_qwen35"]) == 0
-    assert captured["output_csv"] == Path("output/final_test_qwen35.csv")
-    assert captured["output_jsonl"] == Path("output/final_test_qwen35.jsonl")
-    assert captured["output_compact_jsonl"] == Path("output/final_test_qwen35.compact.jsonl")
-    assert captured["call_log_jsonl"] == Path("output/final_test_qwen35.ollama_calls.jsonl")
-    assert captured["prompt_output_dir"] == Path("output/final_test_qwen35_prompts")
+    assert captured["output_csv"] == Path("output/final_test_qwen35/final_test_qwen35.csv")
+    assert captured["output_jsonl"] == Path("output/final_test_qwen35/final_test_qwen35.jsonl")
+    assert captured["output_compact_jsonl"] == Path(
+        "output/final_test_qwen35/final_test_qwen35.compact.jsonl"
+    )
+    assert captured["call_log_jsonl"] == Path(
+        "output/final_test_qwen35/final_test_qwen35.ollama_calls.jsonl"
+    )
+    assert captured["prompt_output_dir"] == Path("output/final_test_qwen35/prompts")
+    assert captured["run_metadata"] == Path("output/final_test_qwen35/run_metadata.txt")
 
 
 def test_main_prints_rulebook_format_walkthrough(

@@ -4,11 +4,16 @@ import argparse
 import csv
 import json
 import re
+import shlex
+import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib import error, request
+
+from . import __version__
 
 
 DEFAULT_OLLAMA_URL = "http://localhost:11434/api/generate"
@@ -16,6 +21,7 @@ DEFAULT_RULES_FILE = Path("rules/ollama_rulebook.txt")
 DEFAULT_PROMPT_OUTPUT_DIR = Path("output/prompts")
 DEFAULT_CALL_LOG_JSONL = Path("output/ollama_calls.jsonl")
 DEFAULT_OUTPUT_BASENAME = "records_extracted"
+DEFAULT_RUN_METADATA = "run_metadata.txt"
 
 DEFAULT_FIELDS = [
     "record_id",
@@ -370,13 +376,112 @@ def strip_known_output_suffix(path: Path) -> Path:
 
 def derived_output_paths(output: Path) -> dict[str, Path]:
     base = strip_known_output_suffix(output_base_path(output))
+    run_dir = base
+    stem = run_dir.name
     return {
-        "csv": base.with_suffix(".csv"),
-        "jsonl": base.with_suffix(".jsonl"),
-        "compact_jsonl": base.with_name(f"{base.name}.compact.jsonl"),
-        "call_log_jsonl": base.with_name(f"{base.name}.ollama_calls.jsonl"),
-        "prompt_output_dir": base.with_name(f"{base.name}_prompts"),
+        "run_dir": run_dir,
+        "csv": run_dir / f"{stem}.csv",
+        "jsonl": run_dir / f"{stem}.jsonl",
+        "compact_jsonl": run_dir / f"{stem}.compact.jsonl",
+        "call_log_jsonl": run_dir / f"{stem}.ollama_calls.jsonl",
+        "prompt_output_dir": run_dir / "prompts",
+        "run_metadata": run_dir / DEFAULT_RUN_METADATA,
     }
+
+
+def run_git_command(args: list[str]) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception as exc:
+        return f"unavailable: {exc}"
+    output = completed.stdout.strip()
+    if completed.returncode != 0:
+        error_text = completed.stderr.strip()
+        return f"unavailable: {error_text or completed.returncode}"
+    return output
+
+
+def build_run_metadata(
+    *,
+    run_id: str,
+    started_at: str,
+    finished_at: str,
+    status: str,
+    command: list[str],
+    input_dir: Path,
+    output_csv: Path,
+    output_jsonl: Path,
+    output_compact_jsonl: Path | None,
+    call_log_jsonl: Path | None,
+    prompt_output_dir: Path | None,
+    model: str,
+    ollama_url: str,
+    retries: int,
+    temperature: float,
+    num_ctx: int,
+    timeout: int,
+    think: bool,
+    rules_file: Path | None,
+    rows_written: int,
+    run_stats: dict[str, Any],
+) -> str:
+    git_status = run_git_command(["status", "--short"])
+    git_exact_tag = run_git_command(["describe", "--tags", "--exact-match"])
+    if git_exact_tag.startswith("unavailable:"):
+        git_exact_tag = "(none)"
+    lines = [
+        "parse-freetext run metadata",
+        "",
+        f"run_id: {run_id}",
+        f"started_at_utc: {started_at}",
+        f"finished_at_utc: {finished_at}",
+        f"status: {status}",
+        f"package_version: {__version__}",
+        f"git_branch: {run_git_command(['rev-parse', '--abbrev-ref', 'HEAD'])}",
+        f"git_commit: {run_git_command(['rev-parse', 'HEAD'])}",
+        f"git_exact_tag: {git_exact_tag}",
+        f"git_dirty: {'yes' if git_status else 'no'}",
+        "",
+        "command:",
+        shlex.join(command),
+        "",
+        "settings:",
+        f"input_dir: {input_dir}",
+        f"rules_file: {rules_file}",
+        f"model: {model}",
+        f"ollama_url: {ollama_url}",
+        f"retries: {retries}",
+        f"temperature: {temperature}",
+        f"num_ctx: {num_ctx}",
+        f"timeout: {timeout}",
+        f"think: {think}",
+        "",
+        "outputs:",
+        f"csv: {output_csv}",
+        f"jsonl: {output_jsonl}",
+        f"compact_jsonl: {output_compact_jsonl}",
+        f"call_log_jsonl: {call_log_jsonl}",
+        f"prompts: {prompt_output_dir}",
+        "",
+        "summary:",
+        f"rows_written: {rows_written}",
+        f"files_total: {run_stats['file_count']}",
+        f"files_successful: {run_stats['successful_files']}",
+        f"files_failed: {run_stats['failed_files']}",
+        f"attempts_total: {run_stats['attempts']}",
+        f"attempts_failed: {run_stats['failed_attempts']}",
+        "",
+        "git_status_short:",
+        git_status or "(clean)",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def rulebook_has_output_columns(rules_text: str | None) -> bool:
@@ -936,6 +1041,8 @@ def process_folder(
     rules_file: Path | None = DEFAULT_RULES_FILE,
     output_compact_jsonl: Path | None = None,
     call_log_jsonl: Path | None = DEFAULT_CALL_LOG_JSONL,
+    run_metadata: Path | None = None,
+    command: list[str] | None = None,
 ) -> int:
     if not input_dir.exists():
         raise OllamaParseError(f"Input directory does not exist: {input_dir}")
@@ -964,6 +1071,7 @@ def process_folder(
     output_jsonl.parent.mkdir(parents=True, exist_ok=True)
     if output_compact_jsonl is not None:
         output_compact_jsonl.parent.mkdir(parents=True, exist_ok=True)
+    started_at = datetime.now(timezone.utc).isoformat()
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     if call_log_jsonl is not None:
         call_log_jsonl.parent.mkdir(parents=True, exist_ok=True)
@@ -1148,6 +1256,35 @@ def process_folder(
         writer.writeheader()
         writer.writerows(all_rows)
 
+    if run_metadata is not None:
+        run_metadata.parent.mkdir(parents=True, exist_ok=True)
+        run_metadata.write_text(
+            build_run_metadata(
+                run_id=run_id,
+                started_at=started_at,
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                status="completed",
+                command=command or sys.argv,
+                input_dir=input_dir,
+                output_csv=output_csv,
+                output_jsonl=output_jsonl,
+                output_compact_jsonl=output_compact_jsonl,
+                call_log_jsonl=call_log_jsonl,
+                prompt_output_dir=prompt_output_dir,
+                model=model,
+                ollama_url=ollama_url,
+                retries=retries,
+                temperature=temperature,
+                num_ctx=num_ctx,
+                timeout=timeout,
+                think=think,
+                rules_file=rules_file,
+                rows_written=len(all_rows),
+                run_stats=run_stats,
+            ),
+            encoding="utf-8",
+        )
+
     print()
     print("Done.")
     print("Summary:")
@@ -1164,6 +1301,8 @@ def process_folder(
         print(f"Call log: {call_log_jsonl}")
     if prompt_output_dir is not None:
         print(f"Prompts: {prompt_output_dir}")
+    if run_metadata is not None:
+        print(f"Run metadata: {run_metadata}")
     return len(all_rows)
 
 
@@ -1198,8 +1337,8 @@ def build_parser() -> argparse.ArgumentParser:
         dest="output",
         type=Path,
         help=(
-                        "Base output name or path. Relative values are written under output/. "
-            "Derives .csv, .jsonl, .compact.jsonl, .ollama_calls.jsonl, and prompt folder paths."
+            "Base run folder name or path. Relative values are written under output/. "
+            "Derives CSV, JSONL, compact JSONL, call log, prompt, and metadata paths inside it."
         ),
     )
     parser.add_argument(
@@ -1225,6 +1364,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--call_log_jsonl",
         type=Path,
         help="Override Ollama call log JSONL path.",
+    )
+    parser.add_argument(
+        "--run-metadata",
+        "--run_metadata",
+        type=Path,
+        help="Override run metadata text file path.",
     )
     parser.add_argument(
         "--no-call-log",
@@ -1253,7 +1398,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help=(
             "Write ready-to-submit prompt .txt files to this folder. "
-            "Defaults to an output-derived folder during extraction, "
+            "Defaults to a folder inside the output run folder during extraction, "
             f"or {DEFAULT_PROMPT_OUTPUT_DIR} with --prompts-only."
         ),
     )
@@ -1274,14 +1419,18 @@ def main(argv: list[str] | None = None) -> int:
     outputs = derived_output_paths(args.output or Path(DEFAULT_OUTPUT_BASENAME))
     prompt_output_dir = args.prompt_output_dir
     if prompt_output_dir is None:
-        prompt_output_dir = DEFAULT_PROMPT_OUTPUT_DIR if args.prompts_only else outputs["prompt_output_dir"]
+        if args.prompts_only and args.output is None:
+            prompt_output_dir = DEFAULT_PROMPT_OUTPUT_DIR
+        else:
+            prompt_output_dir = outputs["prompt_output_dir"]
     output_csv = args.output_csv or outputs["csv"]
     output_jsonl = args.output_jsonl or outputs["jsonl"]
     output_compact_jsonl = args.output_compact_jsonl or (
         outputs["compact_jsonl"] if args.output is not None else None
     )
-    default_call_log_jsonl = outputs["call_log_jsonl"] if args.output is not None else DEFAULT_CALL_LOG_JSONL
+    default_call_log_jsonl = outputs["call_log_jsonl"]
     call_log_jsonl = None if args.no_call_log else (args.call_log_jsonl or default_call_log_jsonl)
+    run_metadata = args.run_metadata or outputs["run_metadata"]
 
     try:
         if args.prompts_only:
@@ -1303,6 +1452,8 @@ def main(argv: list[str] | None = None) -> int:
                 rules_file=args.rules_file,
                 output_compact_jsonl=output_compact_jsonl,
                 call_log_jsonl=call_log_jsonl,
+                run_metadata=run_metadata,
+                command=["parse-freetext-ollama", *(argv if argv is not None else sys.argv[1:])],
             )
     except OllamaParseError as exc:
         message = str(exc)
