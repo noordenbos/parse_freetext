@@ -1,0 +1,44 @@
+Output columns:
+- record_id (string)
+- row_id (integer)
+- clinical_item (string)
+- value (number)
+- unit (string)
+- qualitative_status (string)
+- event_date (string)
+- source_party (string)
+- source_context (string)
+- details (string)
+- quality_of_parsing (string)
+
+Python-filled fields:
+- record_id
+- row_id
+
+Inherited fields:
+- event_date (string)
+
+Rules:
+- Extract one row per clinically relevant item.
+- clinical_item: finding, measurement, medication, diagnosis, symptom, procedure, referral, or care-plan item.
+- Put shared date ranges, periods, and reporting windows in top-level event_date, not in details.
+- event_date: date tied to the clinical item; shared dates or periods top-level; row value only for a specific item date.
+- source_party: clinician, department, care team, lab, pharmacy, or referring organization.
+- source_context: hospital, GP practice, clinic, ward, lab, note type, or source identifier.
+- details should contain only row-specific facts or uncertainty not captured in another column.
+- Split separate measurements, medications, diagnoses, symptoms, procedures, referrals, and care-plan items into separate rows.
+- value: numeric value for continuous numbers, discrete counts/scores/grades, doses, durations, and yes/no coding.
+- unit: unit or coding label, such as mmHg, mmol/L, mg, days, episodes, score, grade, or yes_no.
+- qualitative_status: present, absent, improved, worsened, stable, suspected, confirmed, ruled_out, mild, moderate, severe.
+- For yes/no findings, use value 1 for present/yes, value 0 for absent/no, and unit yes_no.
+- For qualitative findings without a meaningful number, omit value and fill qualitative_status.
+- Preserve compound clinical values, such as 142/88 mmHg, in details.
+- Use high when item and context are clear, medium when one important detail is missing, and low when several key details are missing.
+
+Examples:
+- "2026-01-15 cardiology note: LDL 3.2 mmol/L" -> clinical_item LDL, value 3.2, unit mmol/L, event_date 2026-01-15.
+- "Blood pressure was 142/88 mmHg" -> clinical_item blood pressure, value 142, unit mmHg, details include 142/88 mmHg.
+- "Patient reports three dizziness episodes" -> clinical_item dizziness episodes, value 3, unit episodes.
+- "Dyspnea improved after starting inhaler" -> clinical_item dyspnea, value null, qualitative_status improved.
+- "No fever reported" -> clinical_item fever, value 0, unit yes_no, qualitative_status absent.
+- "Metformin 500 mg twice daily continued" -> clinical_item Metformin, value 500, unit mg.
