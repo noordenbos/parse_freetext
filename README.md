@@ -14,9 +14,19 @@ Helper tools can create the input `.txt` files from source formats. Today this r
 
 ## Full Setup Walkthrough
 
-These steps are written to be safe across macOS, Linux, and Windows. Commands are shown for a normal terminal. On Windows, use PowerShell unless noted otherwise.
+These steps are written to be safe across macOS, Linux, and Windows. Follow the visible path first; open the collapsed sections when you need platform-specific commands, examples, or reference details.
 
 ### 1. Install Prerequisites
+
+Install Git and `uv`, then check both are available:
+
+```bash
+git --version
+uv --version
+```
+
+<details>
+<summary>Install Git and uv by platform</summary>
 
 Install Git:
 
@@ -24,7 +34,7 @@ Install Git:
 - Windows: install Git for Windows from [https://git-scm.com/downloads](https://git-scm.com/downloads).
 - Linux: install Git with your package manager, for example `sudo apt install git` on Debian/Ubuntu.
 
-Install `uv`, the Python environment and package runner used by this project:
+Install `uv`, the Python environment and package runner used by this project.
 
 macOS/Linux:
 
@@ -38,12 +48,9 @@ Windows PowerShell:
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-Close and reopen your terminal after installing `uv`, then check:
+Close and reopen your terminal after installing `uv`.
 
-```bash
-git --version
-uv --version
-```
+</details>
 
 ### 2. Clone The Repository
 
@@ -91,7 +98,12 @@ output/example_texts/CASE-001.txt
 output/example_texts/CASE-002.txt
 ```
 
-If your source is a spreadsheet, use the helper to create those `.txt` files. First inspect the example workbook:
+If your source is a spreadsheet, use `spreadsheet-helper` to create those `.txt` files.
+
+<details>
+<summary>Create text files from a spreadsheet</summary>
+
+First inspect the example workbook:
 
 ```bash
 uv run spreadsheet-helper examples/sample_transactions.xlsx --inspect
@@ -121,6 +133,8 @@ uv run spreadsheet-helper examples/sample_transactions.xlsx `
 
 The helper also accepts `.csv` and `.tsv` files. For those formats, the first row is treated as headers and `--sheet` is not supported.
 
+</details>
+
 ### 5. Add A Local Rulebook
 
 Create a local rulebook from the non-sensitive example:
@@ -141,7 +155,8 @@ Copy-Item examples/rulebook.example.txt rules/ollama_rulebook.txt
 
 Edit `rules/ollama_rulebook.txt` for your own use case. This file is ignored by Git and should be treated as local/private.
 
-Rulebook format and best practices
+<details>
+<summary>Rulebook format and best practices</summary>
 
 The Ollama parser adds your rulebook to every prompt. Keep private client, dossier, investigation, and internal methodology details out of committed files.
 
@@ -191,9 +206,10 @@ To reduce prompt and response size, the Ollama request uses compact JSON aliases
 
 If no `Output columns:` section is found, the CLI falls back to neutral medical-example columns.
 
+</details>
 
-
-Optional LLM prompt for drafting a rulebook
+<details>
+<summary>Optional LLM prompt for drafting a rulebook</summary>
 
 You can use your favorite LLM to draft the first version of a rulebook. Do not paste sensitive source text into a cloud model. A good safe input is the target output columns you want and, if relevant, the column names from the spreadsheet or source table that will feed the parser.
 
@@ -225,7 +241,7 @@ Formatting requirements:
 - Mark fields that are often shared by many rows, such as document_context or event_date, under Inherited fields.
 - Keep rules concise and source-grounded.
 - Avoid repeating the same instruction in multiple fields.
-- An example section is really helpful to catch common ambiguities
+- Add a short synthetic example section when it helps resolve common ambiguities.
 
 My intended output columns are:
 [paste target output columns here]
@@ -234,9 +250,9 @@ Use case:
 [describe the parsing goal]
 ```
 
-After saving the generated rulebook locally, run `--prompts-only` and inspect a few prompt files before calling running batched analysis.
+After saving the generated rulebook locally, run `--prompts-only` and inspect a few prompt files before running batched analysis.
 
-
+</details>
 
 ### 6. Generate Prompts Without Calling A Model
 
@@ -280,6 +296,9 @@ ollama pull qwen3.5:9b
 
 Before running a full batch, test one or two generated prompts directly in Ollama. This is the fastest way to tune the rulebook for response quality, token use, and runtime.
 
+<details>
+<summary>Interactive Ollama prompt tuning tutorial</summary>
+
 Start an interactive Ollama session:
 
 ```bash
@@ -315,6 +334,8 @@ uv run parse-freetext-ollama output/example_texts \
   --prompt-output-dir output/example_prompts
 ```
 
+</details>
+
 ### 9. Run A Local Batch Extraction
 
 This calls the local Ollama API, so it can use CPU/GPU resources. Start with a small input folder.
@@ -347,7 +368,12 @@ uv run parse-freetext-ollama output/texts \
   --output records_extracted
 ```
 
-Relative `--output` values are written under `output/`. The command above creates:
+Relative `--output` values are written under `output/`. Prompts are saved by default.
+
+<details>
+<summary>Outputs and command options</summary>
+
+The command above creates:
 
 ```text
 output/records_extracted.csv
@@ -377,6 +403,8 @@ If parsing fails for a file after all retries, the CSV and JSONL include a failu
 
 The command prints a Python-side run summary with file counts, attempts, records, wall time, and aggregated Ollama token/timing stats when the API returns them. The call log writes one JSON object per Ollama attempt with model settings, timing, token counts, response sizes, record counts, and errors. It does not store prompts, source text, or model response text.
 
+</details>
+
 ## Helper CLI: Spreadsheet To Text
 
 `spreadsheet-helper` is a small helper for creating input `.txt` files for `parse-freetext-ollama`. It is intentionally secondary to the Ollama parser.
@@ -386,6 +414,9 @@ Supported formats:
 - `.xlsx`: supports workbook inspection and `--sheet` selection.
 - `.csv`: treats the first row as headers.
 - `.tsv`: treats the first row as headers.
+
+<details>
+<summary>Spreadsheet helper examples and options</summary>
 
 Inspect a spreadsheet-like input:
 
@@ -431,6 +462,8 @@ Useful options:
 
 Rows without a record id or without text in the selected columns are skipped and counted in the command summary.
 
+</details>
+
 ## Development
 
 ```bash
@@ -441,6 +474,9 @@ uv run spreadsheet-helper --help
 ```
 
 ## Artifact Policy
+
+<details>
+<summary>Committed and ignored files</summary>
 
 Committed:
 
@@ -457,6 +493,8 @@ Ignored:
 - Virtual environments, caches, build metadata, and operating-system files
 
 Do not commit real client, dossier, or investigation data.
+
+</details>
 
 ## License
 
