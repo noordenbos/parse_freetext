@@ -4,19 +4,19 @@ import argparse
 from pathlib import Path
 import sys
 
-from .extractor import ExtractionError, extract_text_files, inspect_workbook
+from .extractor import ExtractionError, extract_text_files, inspect_spreadsheet
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="parse-freetext",
-        description="Extract free-text columns from XLSX sheets into {transaction_id}.txt files.",
+        prog="spreadsheet-helper",
+        description="Extract free-text columns from XLSX/CSV/TSV files into {record_id}.txt files.",
     )
-    parser.add_argument("input_file", type=Path, help="Path to the input .xlsx workbook.")
+    parser.add_argument("input_file", type=Path, help="Path to the input .xlsx, .csv, or .tsv file.")
     parser.add_argument(
         "--inspect",
         action="store_true",
-        help="Print worksheet names and first-row headers, then exit.",
+        help="Print sheet/table names and first-row headers, then exit.",
     )
     parser.add_argument(
         "-o",
@@ -30,13 +30,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--sheet",
         action="append",
         dest="sheets",
-        help="Worksheet tab to process. Repeat to use multiple tabs. Default: all tabs.",
+        help="Worksheet tab to process for .xlsx files. Repeat to use multiple tabs. Default: all tabs.",
     )
     parser.add_argument(
         "-i",
         "--transaction-id-column",
         required=False,
-        help="Column containing transaction ids. Accepts a header name, number, or letter.",
+        help="Column containing record ids. Accepts a header name, number, or letter.",
     )
     parser.add_argument(
         "-t",
@@ -54,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--append-sheet-name",
         action="store_true",
-        help="Append the worksheet name to each filename to avoid cross-sheet collisions.",
+        help="Append the worksheet name to each filename to avoid cross-sheet collisions for .xlsx files.",
     )
     return parser
 
@@ -63,12 +63,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.input_file.suffix.lower() != ".xlsx":
-        parser.error("input_file must be an .xlsx workbook")
-
     try:
         if args.inspect:
-            for sheet in inspect_workbook(args.input_file):
+            for sheet in inspect_spreadsheet(args.input_file):
                 headers = ", ".join(sheet.headers) if sheet.headers else "(no headers found)"
                 print(f"{sheet.name}: {headers}")
             return 0

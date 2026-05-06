@@ -1,19 +1,16 @@
 # parse-freetext
 
-`parse-freetext` is a Python CLI toolkit for turning free-text into structured records, done locally so sensitive data can be handled.
+`parse-freetext` is a local-first Python toolkit for turning free text into structured records with Ollama. It is meant for sensitive workflows where prompts, model calls, and outputs should stay on your own machine.
 
-It is designed for repeatable local workflows:
+The main workflow is:
 
-1. A folder containing freetext as {id}.txt can be submitted for parsing
-2. Based on the user supplied 'rulebook' the requested field are specified and nuanced instruction can be supplied regarding output and interpretation
-3. The tool build concise and efficient prompts optimized to reduce token use and compute
-4. The prompts are passed to a local model via ollama
-5. Ollama returns structured output in JSON format, that is rebuild to CSV format.
+1. Put source free text in a folder as `{id}.txt` files.
+2. Write a local rulebook that defines output columns and extraction rules.
+3. Generate compact prompts and inspect them before running a model.
+4. Parse the text files through a local Ollama model.
+5. Write readable CSV/JSONL plus optional compact/debug artifacts.
 
-microtool help pull freetext from excel files
-1. Inspect an `.xlsx` workbook to find sheet names and headers.
-2. Extract selected free-text columns into one `.txt` file per source row or record id.
-
+Helper tools can create the input `.txt` files from source formats. Today this repo includes `spreadsheet-helper` for `.xlsx`, `.csv`, and `.tsv`; future helpers may support other text sources.
 
 ## Full Setup Walkthrough
 
@@ -75,8 +72,8 @@ uv sync --extra dev
 Check that the CLIs are available:
 
 ```bash
-uv run parse-freetext --help
 uv run parse-freetext-ollama --help
+uv run spreadsheet-helper --help
 ```
 
 Run the test suite:
@@ -85,18 +82,25 @@ Run the test suite:
 uv run pytest
 ```
 
-### 4. Create Text Files From A Workbook
+### 4. Prepare Text Files
 
-First inspect the example workbook:
+If you already have free text files, put them in a folder like this:
+
+```text
+output/example_texts/CASE-001.txt
+output/example_texts/CASE-002.txt
+```
+
+If your source is a spreadsheet, use the helper to create those `.txt` files. First inspect the example workbook:
 
 ```bash
-uv run parse-freetext examples/sample_transactions.xlsx --inspect
+uv run spreadsheet-helper examples/sample_transactions.xlsx --inspect
 ```
 
 Then extract selected free-text columns:
 
 ```bash
-uv run parse-freetext examples/sample_transactions.xlsx \
+uv run spreadsheet-helper examples/sample_transactions.xlsx \
   --transaction-id-column "Transaction ID" \
   --text-column Notes \
   --text-column Description \
@@ -107,7 +111,7 @@ uv run parse-freetext examples/sample_transactions.xlsx \
 On Windows PowerShell, use backticks for line continuation:
 
 ```powershell
-uv run parse-freetext examples/sample_transactions.xlsx `
+uv run spreadsheet-helper examples/sample_transactions.xlsx `
   --transaction-id-column "Transaction ID" `
   --text-column Notes `
   --text-column Description `
@@ -115,11 +119,7 @@ uv run parse-freetext examples/sample_transactions.xlsx `
   --overwrite
 ```
 
-You should now have `.txt` files under:
-
-```text
-output/example_texts/
-```
+The helper also accepts `.csv` and `.tsv` files. For those formats, the first row is treated as headers and `--sheet` is not supported.
 
 ### 5. Add A Local Rulebook
 
@@ -131,8 +131,6 @@ macOS/Linux:
 mkdir -p rules
 cp examples/rulebook.example.txt rules/ollama_rulebook.txt
 ```
-
-If your clone does not contain `examples/rulebook.example.txt`, update to the latest repository version. As a temporary fallback, create `rules/ollama_rulebook.txt` from the rulebook format example below and then run `--prompts-only` to validate it.
 
 Windows PowerShell:
 
@@ -203,85 +201,47 @@ output/example_records_prompts/
 
 The regular CSV and JSONL use readable column names. The compact JSONL is mostly for debugging the alias-shaped model output.
 
-## CLI Commands
+## Main CLI: Parse With Ollama
 
-The package installs two commands:
-
-```bash
-uv run parse-freetext --help
-uv run parse-freetext-ollama --help
-```
-
-## Inspect A Workbook
-
-Use `--inspect` to print worksheet tabs and first-row headers before choosing extraction flags:
-
-```bash
-uv run parse-freetext examples/sample_transactions.xlsx --inspect
-```
-
-Example output:
-
-```text
-Transactions: Transaction ID, Notes, Description
-Archive: Transaction ID, Notes, Description
-```
-
-## Extract Free Text From Excel
-
-Extract `Notes` and `Description` from selected sheets, using `Transaction ID` for output filenames:
-
-```bash
-uv run parse-freetext examples/sample_transactions.xlsx \
-  --sheet Transactions \
-  --sheet Archive \
-  --transaction-id-column "Transaction ID" \
-  --text-column Notes \
-  --text-column Description \
-  --output-dir output/texts
-```
-
-This creates files such as:
-
-```text
-output/texts/TX-001.txt
-output/texts/TX-002.txt
-```
-
-Column references can be:
-
-- Header names: `--transaction-id-column "Transaction ID"`
-- Excel letters: `--text-column C`
-- 1-based numbers: `--text-column 3`
-
-Useful extraction options:
-
-- `--sheet`: worksheet tab to process. Repeat it for multiple tabs. If omitted, all sheets are processed.
-- `--text-column`: free-text column to extract. Repeat it to combine multiple columns into one text file.
-- `--output-dir`: output folder. Defaults to `output/texts`.
-- `--overwrite`: replace existing output files.
-- `--append-sheet-name`: append the sheet name to filenames to avoid cross-sheet transaction id collisions.
-
-Rows without a transaction id or without text in the selected columns are skipped and counted in the command summary.
-
-## Generate Prompt Files
-
-To manually submit prompts to a cloud model service, generate prompt files without calling Ollama:
+`parse-freetext-ollama` is the main command. It reads `.txt` files from a folder, builds prompts from a local rulebook, calls Ollama unless `--prompts-only` is used, and writes structured output.
 
 ```bash
 uv run parse-freetext-ollama output/texts \
-  --prompt-output-dir output/prompts \
-  --prompts-only
+  --model qwen3.5:9b \
+  --output records_extracted
 ```
 
-This creates one ready-to-submit prompt per input text file:
+Relative `--output` values are written under `output/`. The command above creates:
 
 ```text
-output/prompts/TX-001_prompt.txt
-output/prompts/TX-002_prompt.txt
+output/records_extracted.csv
+output/records_extracted.jsonl
+output/records_extracted.compact.jsonl
+output/records_extracted.ollama_calls.jsonl
+output/records_extracted_prompts/
 ```
 
-## Add A Local Rulebook
+Useful options:
+
+- `--prompts-only`: write prompt files and skip the Ollama API call.
+- `--rules-file`: local extraction rulebook. Defaults to `rules/ollama_rulebook.txt` when that file exists.
+- `--model`: Ollama model name.
+- `--ollama-url`: generate endpoint. Defaults to `http://localhost:11434/api/generate`.
+- `--temperature`: model temperature. Defaults to `0.0`.
+- `--num-ctx`: context window. Defaults to `8192`.
+- `--timeout`: HTTP timeout in seconds. Defaults to `300`.
+- `--retries`: retries per text file. Defaults to `2`.
+- `--think`: enable Ollama thinking mode. Defaults to off for structured extraction.
+- `--output`: base output name or path. Derives CSV, JSONL, compact JSONL, call-log JSONL, and prompt folder paths.
+- `--prompt-output-dir`: override the derived prompt folder.
+- `--output-csv`, `--output-jsonl`, `--output-compact-jsonl`, `--call-log-jsonl`: override individual derived paths when needed.
+- `--no-call-log`: disable Ollama call logging.
+
+If parsing fails for a file after all retries, the CSV and JSONL include a failure row. For custom schemas, the error is written to `details`, `notes`, or another available detail field when one exists.
+
+The command prints a Python-side run summary with file counts, attempts, records, wall time, and aggregated Ollama token/timing stats when the API returns them. The call log writes one JSON object per Ollama attempt with model settings, timing, token counts, response sizes, record counts, and errors. It does not store prompts, source text, or model response text.
+
+## Rulebooks
 
 The Ollama parser can add a user-provided rulebook to every prompt. By default it looks for:
 
@@ -291,44 +251,21 @@ rules/ollama_rulebook.txt
 
 That local path is ignored by Git, so it is a good place for project-specific rules that should not be committed. The included example uses synthetic medical dossier parsing to show qualitative, discrete, and continuous field extraction without exposing real sensitive content.
 
-Start from the non-sensitive example:
-
-```bash
-mkdir -p rules
-cp examples/rulebook.example.txt rules/ollama_rulebook.txt
-```
-
-You can also point to another file:
-
-```bash
-uv run parse-freetext-ollama output/texts \
-  --rules-file path/to/your_rulebook.txt \
-  --prompt-output-dir output/prompts \
-  --prompts-only
-```
-
 Rulebook format:
 
 - Keep private client, dossier, investigation, and internal methodology details out of committed files.
-- Write plain text or Markdown-style bullets with clear section headings.
 - Add an `Output columns:` section near the top so the CLI can build the Ollama JSON schema and CSV headers.
 - Keep `Output columns:` structural: declare only `- column_name (type)` so the parser can build columns, aliases, and schema.
 - Use only `string`, `number`, `integer`, or `boolean` as column types.
 - Use snake_case column names, such as `record_id`, `row_id`, `clinical_item`, and `event_date`.
 - Put behavioral instructions in `Rules:`, including field meanings, row splitting, normalization, and what to do when information is missing.
-- Put one instruction per rule bullet.
 - Fields such as `transaction_id_parent`, `record_id`, `sub_id`, and `row_id` are filled by Python after extraction and are omitted from the model-facing aliases/schema.
 - Add an optional `Inherited fields:` section for columns that are often shared by many rows, such as a global date period. Keep it structural too.
-- Name schema fields directly when a rule applies to a field, such as `value`, `unit`, or `details`.
-- Include normalization rules for dates, units, numeric values, qualitative labels, and null values.
-- Prefer source-grounded instructions over broad judgment calls.
-- Tell the model not to invent missing values, diagnoses, conclusions, intent, or unsupported calculations.
-- Keep examples synthetic and non-sensitive.
 - Test changes with `--prompts-only` first, then inspect a few generated prompts before running a model.
 
 The CLI validates the structural sections before generating prompts. If a field bullet is malformed, uses an unsupported type, duplicates a column, or references an inherited/Python-filled field that is not an output column, it stops with a `Rulebook structural format warning` and prints a short format walkthrough.
 
-Example column declaration:
+Example structure:
 
 ```text
 Output columns:
@@ -357,135 +294,71 @@ Rules:
 - details: concise source-grounded summary.
 ```
 
-Python reads this section before calling Ollama. The parsed column names become:
-
-- the required fields in the Ollama structured-output JSON schema
-- the column order in the CSV
-- the keys written to each JSONL row
-
 To reduce prompt and response size, the Ollama request uses compact JSON aliases internally, skips Python-filled fields, and asks the model to omit unknown/null properties. The regular CSV and JSONL outputs still use the readable column names from the rulebook, with missing values filled as null/empty cells by Python.
 
-Inherited fields may appear once as top-level JSON values in the model response. Python copies that top-level value into each row that omitted the field, while preserving row-specific overrides.
+If no `Output columns:` section is found, the CLI falls back to neutral medical-example columns.
 
-If no `Output columns:` section is found, the CLI falls back to the neutral medical-example columns shown below.
+## Helper CLI: Spreadsheet To Text
 
-The rulebook's structural sections are parsed by Python and converted into a compact JSON-shape block. Only the remaining domain rules and examples are inserted into the prompt before the source free text:
+`spreadsheet-helper` is a small helper for creating input `.txt` files for `parse-freetext-ollama`. It is intentionally secondary to the Ollama parser.
 
-```text
-User-provided extraction rulebook:
-<<<
-...your rulebook text...
->>>
-```
+Supported formats:
 
-The prompt still contains the filename, the parent id, the output schema requirement, and then the free-text document. The rulebook is therefore best used for domain-specific extraction policy, not for private source data itself.
+- `.xlsx`: supports workbook inspection and `--sheet` selection.
+- `.csv`: treats the first row as headers.
+- `.tsv`: treats the first row as headers.
 
-## Parse With Ollama
-
-Make sure Ollama is running locally and the model is available:
+Inspect a spreadsheet-like input:
 
 ```bash
-ollama serve
-ollama pull qwen3.5:9b
+uv run spreadsheet-helper examples/sample_transactions.xlsx --inspect
 ```
 
-Then parse the extracted text files:
+Extract text from selected columns:
 
 ```bash
-uv run parse-freetext-ollama output/texts \
-  --model qwen3.5:9b \
-  --output records_extracted
-```
-
-Relative `--output` values are written under `output/`. The command above creates:
-
-```text
-output/records_extracted.csv
-output/records_extracted.jsonl
-output/records_extracted.compact.jsonl
-output/records_extracted.ollama_calls.jsonl
-output/records_extracted_prompts/
-```
-
-An absolute `--output` path is used as-is.
-
-Prompts are saved by default during extraction. You can choose a different prompt folder:
-
-```bash
-uv run parse-freetext-ollama output/texts \
-  --model qwen3.5:9b \
-  --prompt-output-dir output/prompts
-```
-
-Ollama options:
-
-- `--ollama-url`: generate endpoint. Defaults to `http://localhost:11434/api/generate`.
-- `--retries`: retries per text file. Defaults to `2`.
-- `--temperature`: model temperature. Defaults to `0.0` (maximal deterministic).
-- `--num-ctx`: context window. Defaults to `8192`.
-- `--timeout`: HTTP timeout in seconds. Defaults to `300`.
-- `--rules-file`: local extraction rulebook. Defaults to `rules/ollama_rulebook.txt` when that file exists.
-- `--think`: enable Ollama thinking mode. Defaults to off for structured extraction. Costly.
-- `--output`: base output name or path. Derives CSV, JSONL, compact JSONL, call-log JSONL, and prompt folder paths.
-- `--prompt-output-dir`: override the derived prompt folder.
-- `--output-csv`, `--output-jsonl`, `--output-compact-jsonl`, `--call-log-jsonl`: override individual derived paths when needed.
-- `--no-call-log`: disable Ollama call logging.
-
-If parsing fails for a file after all retries, the CSV and JSONL include a failure row. For custom schemas, the error is written to `details`, `notes`, or another available detail field when one exists.
-
-The command also prints a Python-side run summary with file counts, attempts, records, wall time, and aggregated Ollama token/timing stats when the API returns them. The call log writes one JSON object per Ollama attempt with model settings, timing, token counts, response sizes, record counts, and errors. It does not store prompts, source text, or model response text. Ollama reports usage metrics such as `total_duration`, `prompt_eval_count`, and `eval_count` in non-streaming generate responses; durations are in nanoseconds.
-
-## Structured Output Schema
-
-Without an `Output columns:` section in the rulebook, the Ollama parser writes CSV and JSONL with these fallback fields:
-
-```text
-record_id
-row_id
-clinical_item
-value
-unit
-qualitative_status
-event_date
-source_party
-source_context
-details
-quality_of_parsing
-```
-
-## Examples
-
-The repository includes a sanitized workbook and expected extracted text files:
-
-```text
-examples/sample_transactions.xlsx
-examples/expected_texts/TX-001.txt
-examples/expected_texts/TX-002.txt
-examples/expected_texts/TX-003.txt
-```
-
-Try the full local extraction flow:
-
-```bash
-uv run parse-freetext examples/sample_transactions.xlsx \
+uv run spreadsheet-helper examples/sample_transactions.xlsx \
+  --sheet Transactions \
+  --sheet Archive \
   --transaction-id-column "Transaction ID" \
   --text-column Notes \
   --text-column Description \
-  --output-dir output/example_texts \
-  --overwrite
-
-uv run parse-freetext-ollama output/example_texts \
-  --prompt-output-dir output/example_prompts \
-  --prompts-only
+  --output-dir output/texts
 ```
+
+For CSV/TSV, omit `--sheet`:
+
+```bash
+uv run spreadsheet-helper input/my_records.csv \
+  --transaction-id-column "Record ID" \
+  --text-column Notes \
+  --output-dir output/texts
+```
+
+Column references can be:
+
+- Header names: `--transaction-id-column "Record ID"`
+- Spreadsheet letters: `--text-column C`
+- 1-based numbers: `--text-column 3`
+
+Useful options:
+
+- `--inspect`: print sheet/table names and headers.
+- `--sheet`: worksheet tab to process for `.xlsx` files. Repeat it for multiple tabs. If omitted, all sheets are processed.
+- `--text-column`: free-text column to extract. Repeat it to combine multiple columns into one text file.
+- `--output-dir`: output folder. Defaults to `output/texts`.
+- `--overwrite`: replace existing output files.
+- `--append-sheet-name`: append the sheet name to each filename to avoid cross-sheet collisions for `.xlsx` files.
+
+Rows without a record id or without text in the selected columns are skipped and counted in the command summary.
 
 ## Development
 
 ```bash
 uv sync --extra dev
 uv run pytest
-uv run parse-freetext --help
 uv run parse-freetext-ollama --help
+uv run spreadsheet-helper --help
 ```
 
 ## Artifact Policy
