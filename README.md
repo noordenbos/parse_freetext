@@ -4,11 +4,11 @@
 
 The main workflow is:
 
-1. Put source free text in a folder as `{id}.txt` files.
-2. Write a local rulebook that defines output columns and extraction rules.
-3. Generate compact prompts and inspect them before running a model.
-4. Parse the text files through a local Ollama model.
-5. Write readable CSV/JSONL plus optional compact/debug artifacts.
+1. Put source free text in a folder as `{id}.txt` files, either manually or with a helper such as `spreadsheet-helper`.
+2. Write a local rulebook that defines output columns and extraction rules, optionally with help from an LLM.
+3. Generate compact prompts with the toolkit.
+4. Inspect and optimize prompts interactively in Ollama.
+5. Run batched processing through a local Ollama model and write readable CSV/JSONL output.
 
 Helper tools can create the input `.txt` files from source formats. Today this repo includes `spreadsheet-helper` for `.xlsx`, `.csv`, and `.tsv`; future helpers may support other text sources.
 
@@ -20,8 +20,8 @@ These steps are written to be safe across macOS, Linux, and Windows. Commands ar
 
 Install Git:
 
-- macOS: install Xcode Command Line Tools with `xcode-select --install`, or install Git from <https://git-scm.com/downloads>.
-- Windows: install Git for Windows from <https://git-scm.com/downloads>.
+- macOS: install Xcode Command Line Tools with `xcode-select --install`, or install Git from [https://git-scm.com/downloads](https://git-scm.com/downloads).
+- Windows: install Git for Windows from [https://git-scm.com/downloads](https://git-scm.com/downloads).
 - Linux: install Git with your package manager, for example `sudo apt install git` on Debian/Ubuntu.
 
 Install `uv`, the Python environment and package runner used by this project:
@@ -141,8 +141,7 @@ Copy-Item examples/rulebook.example.txt rules/ollama_rulebook.txt
 
 Edit `rules/ollama_rulebook.txt` for your own use case. This file is ignored by Git and should be treated as local/private.
 
-<details>
-<summary>Rulebook format and best practices</summary>
+Rulebook format and best practices
 
 The Ollama parser adds your rulebook to every prompt. Keep private client, dossier, investigation, and internal methodology details out of committed files.
 
@@ -192,10 +191,9 @@ To reduce prompt and response size, the Ollama request uses compact JSON aliases
 
 If no `Output columns:` section is found, the CLI falls back to neutral medical-example columns.
 
-</details>
 
-<details>
-<summary>Optional LLM prompt for drafting a rulebook</summary>
+
+Optional LLM prompt for drafting a rulebook
 
 You can use your favorite LLM to draft the first version of a rulebook. Do not paste sensitive source text into a cloud model. A good safe input is the target output columns you want and, if relevant, the column names from the spreadsheet or source table that will feed the parser.
 
@@ -227,21 +225,18 @@ Formatting requirements:
 - Mark fields that are often shared by many rows, such as document_context or event_date, under Inherited fields.
 - Keep rules concise and source-grounded.
 - Avoid repeating the same instruction in multiple fields.
-- Do not include private examples or sensitive source text.
+- An example section is really helpful to catch common ambiguities
 
 My intended output columns are:
 [paste target output columns here]
 
-Source spreadsheet/table columns that may help define the rulebook are:
-[paste non-sensitive column names here]
-
 Use case:
-[briefly describe the parsing goal without sensitive details]
+[describe the parsing goal]
 ```
 
-After saving the generated rulebook locally, run `--prompts-only` and inspect a few prompt files before calling Ollama.
+After saving the generated rulebook locally, run `--prompts-only` and inspect a few prompt files before calling running batched analysis.
 
-</details>
+
 
 ### 6. Generate Prompts Without Calling A Model
 
@@ -263,7 +258,7 @@ If the rulebook structural sections are malformed, the CLI stops here with a `Ru
 
 ### 7. Optional: Install And Run Ollama Locally
 
-Install Ollama from <https://ollama.com/download>. On Linux, the installer command published by Ollama is:
+Install Ollama from [https://ollama.com/download](https://ollama.com/download). On Linux, the installer command published by Ollama is:
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
@@ -281,7 +276,46 @@ Pull a model:
 ollama pull qwen3.5:9b
 ```
 
-### 8. Run A Local Extraction
+### 8. Inspect And Optimize Prompts Interactively
+
+Before running a full batch, test one or two generated prompts directly in Ollama. This is the fastest way to tune the rulebook for response quality, token use, and runtime.
+
+Start an interactive Ollama session:
+
+```bash
+ollama run qwen3.5:9b
+```
+
+Inside the Ollama session, set these options:
+
+```text
+/set nohistory
+/set nothink
+/set verbose
+```
+
+Then open one generated prompt file from `output/example_prompts/`, copy the full prompt text, and paste it into the Ollama session.
+
+The model response should be JSON only. If the response includes explanations, Markdown fences, or extra commentary, tighten the rulebook and regenerate prompts with `--prompts-only`.
+
+With `/set verbose`, Ollama prints timing and token statistics after the response. Use those stats to compare prompt versions:
+
+- Quality: correct rows, correct fields, no invented values, no repeated inherited context in row details.
+- Prompt cost: prompt token count.
+- Response cost: generated token count.
+- Runtime: total response time and token evaluation speed.
+
+Optimize for the best response quality at the lowest acceptable token and time cost. Usually that means making rules shorter, moving repeated row context into inherited fields, removing redundant examples, and keeping `Output columns:` structural.
+
+After editing `rules/ollama_rulebook.txt`, regenerate prompts and repeat:
+
+```bash
+uv run parse-freetext-ollama output/example_texts \
+  --prompts-only \
+  --prompt-output-dir output/example_prompts
+```
+
+### 9. Run A Local Batch Extraction
 
 This calls the local Ollama API, so it can use CPU/GPU resources. Start with a small input folder.
 
