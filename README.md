@@ -1,13 +1,19 @@
 # parse-freetext
 
-`parse-freetext` is a Python CLI toolkit for turning spreadsheet free-text fields into plain text files, ready-to-submit prompts, and structured records.
+`parse-freetext` is a Python CLI toolkit for turning free-text into structured records, done locally so sensitive data can be handled.
 
 It is designed for repeatable local workflows:
 
+1. A folder containing freetext as {id}.txt can be submitted for parsing
+2. Based on the user supplied 'rulebook' the requested field are specified and nuanced instruction can be supplied regarding output and interpretation
+3. The tool build concise and efficient prompts optimized to reduce token use and compute
+4. The prompts are passed to a local model via ollama
+5. Ollama returns structured output in JSON format, that is rebuild to CSV format.
+
+microtool help pull freetext from excel files
 1. Inspect an `.xlsx` workbook to find sheet names and headers.
 2. Extract selected free-text columns into one `.txt` file per source row or record id.
-3. Generate prompt files for manual submission to cloud model services.
-4. Optionally parse those text files through a local Ollama model into CSV and JSONL.
+
 
 ## Full Setup Walkthrough
 
