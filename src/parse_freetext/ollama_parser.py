@@ -55,6 +55,7 @@ FIELD_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 OUTPUT_COLUMNS_HEADING_RE = re.compile(r"^\s*(output\s+(columns|fields)|columns|fields)\s*:\s*$", re.I)
 INHERITED_FIELDS_HEADING_RE = re.compile(r"^\s*inherited\s+fields\s*:\s*$", re.I)
 PYTHON_FILLED_FIELDS_HEADING_RE = re.compile(r"^\s*python-filled\s+fields\s*:\s*$", re.I)
+REQUIRED_FIELDS_HEADING_RE = re.compile(r"^\s*required\s+fields\s*:\s*$", re.I)
 SECTION_HEADING_RE = re.compile(r"^\s*[A-Za-z][A-Za-z0-9 _/-]{0,80}:\s*$")
 FIELD_LINE_RE = re.compile(
     r"^\s*[-*]\s*`?(?P<name>[A-Za-z_][A-Za-z0-9_]*)`?"
@@ -98,6 +99,9 @@ Python-filled fields:
 
 Inherited fields:
 - event_date
+
+Required fields:
+- field_that_must_be_present_in_each_model_row
 
 Rules:
 - Put field meanings, normalization, and extraction behavior here.
@@ -507,6 +511,7 @@ def validate_rulebook_structure(rules_text: str | None) -> None:
     output_fields: list[str] = []
     python_filled_fields: list[str] = []
     inherited_fields: list[str] = []
+    required_fields: list[str] = []
     current_section: str | None = None
     current_section_line = 0
     section_had_fields = False
@@ -535,6 +540,9 @@ def validate_rulebook_structure(rules_text: str | None) -> None:
             continue
         if INHERITED_FIELDS_HEADING_RE.match(line):
             start_section("Inherited fields", line_number)
+            continue
+        if REQUIRED_FIELDS_HEADING_RE.match(line):
+            start_section("Required fields", line_number)
             continue
 
         if current_section is None:
@@ -565,6 +573,8 @@ def validate_rulebook_structure(rules_text: str | None) -> None:
             python_filled_fields.append(name)
         elif current_section == "Inherited fields":
             inherited_fields.append(name)
+        elif current_section == "Required fields":
+            required_fields.append(name)
         section_had_fields = True
 
     close_section()
@@ -582,6 +592,15 @@ def validate_rulebook_structure(rules_text: str | None) -> None:
             problems.append(f"Inherited field is not an output column: {field}")
         if field in SHARED_CONTEXT_FIELDS:
             problems.append(f"Shared-only field cannot also be inherited: {field}")
+    for field in required_fields:
+        if field not in output_field_set:
+            problems.append(f"Required field is not an output column: {field}")
+        if field in python_filled_fields:
+            problems.append(f"Required field is Python-filled, not model-filled: {field}")
+        if field in SHARED_CONTEXT_FIELDS:
+            problems.append(f"Shared-only field cannot be required on each row: {field}")
+        if field in inherited_fields:
+            problems.append(f"Inherited field cannot be required on each row: {field}")
 
     if problems:
         raise rulebook_structure_error(problems)
@@ -672,11 +691,58 @@ def parse_rulebook_inherited_fields(rules_text: str | None, fields: list[str]) -
     return inherited_fields
 
 
+def parse_rulebook_required_fields(
+    rules_text: str | None,
+    fields: list[str],
+    inherited_fields: list[str] | None = None,
+) -> list[str]:
+    if not rules_text:
+        return []
+
+    required_fields: list[str] = []
+    inherited_field_set = set(inherited_fields or [])
+    in_required_fields = False
+    valid_fields = set(fields)
+
+    for line in rules_text.splitlines():
+        if not in_required_fields:
+            if REQUIRED_FIELDS_HEADING_RE.match(line):
+                in_required_fields = True
+            continue
+
+        stripped = line.strip()
+        if not stripped:
+            if required_fields:
+                break
+            continue
+        if required_fields and SECTION_HEADING_RE.match(line):
+            break
+
+        match = FIELD_LINE_RE.match(line)
+        if not match:
+            continue
+
+        name = match.group("name")
+        if name not in valid_fields:
+            raise OllamaParseError(f"Required field is not an output column: {name}")
+        if name in PYTHON_FILLED_FIELD_NAMES:
+            raise OllamaParseError(f"Required field is Python-filled, not model-filled: {name}")
+        if name in SHARED_CONTEXT_FIELDS:
+            raise OllamaParseError(f"Shared-only field cannot be required on each row: {name}")
+        if name in inherited_field_set:
+            raise OllamaParseError(f"Inherited field cannot be required on each row: {name}")
+        if name not in required_fields:
+            required_fields.append(name)
+
+    return required_fields
+
+
 def is_structural_rulebook_heading(line: str) -> bool:
     return bool(
         OUTPUT_COLUMNS_HEADING_RE.match(line)
         or PYTHON_FILLED_FIELDS_HEADING_RE.match(line)
         or INHERITED_FIELDS_HEADING_RE.match(line)
+        or REQUIRED_FIELDS_HEADING_RE.match(line)
     )
 
 
@@ -718,6 +784,7 @@ def build_schema(
     alias_map: dict[str, str] | None = None,
     root_alias: str = ROOT_KEY_ALIAS,
     inherited_fields: list[str] | None = None,
+    required_fields: list[str] | None = None,
 ) -> dict[str, Any]:
     alias_map = alias_map or generate_alias_map(model_alias_fields(fields, inherited_fields))
     row_fields, _shared_fields, top_level_fields = split_model_fields(fields, inherited_fields)
@@ -731,18 +798,28 @@ def build_schema(
             "type": "string",
             "enum": ["high", "medium", "low"],
         }
+    required_row_field_names = [
+        field for field in (required_fields or [])
+        if field in row_fields
+    ]
+    required_row_fields = [
+        alias_map[field]
+        for field in required_row_field_names
+        if field in alias_map
+    ]
+    item_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": properties,
+        "required": required_row_fields,
+        "additionalProperties": False,
+    }
 
     schema = {
         "type": "object",
         "properties": {
             root_alias: {
                 "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": properties,
-                    "required": [],
-                    "additionalProperties": False,
-                },
+                "items": item_schema,
             }
         },
         "required": [root_alias],
@@ -774,6 +851,7 @@ def build_json_shape_block(
     alias_map: dict[str, str],
     root_alias: str,
     inherited_fields: list[str],
+    required_fields: list[str] | None = None,
 ) -> str:
     python_filled_fields = infer_python_filled_fields(fields)
     row_fields, shared_fields, _top_level_fields = split_model_fields(fields, inherited_fields)
@@ -794,6 +872,8 @@ def build_json_shape_block(
             "Put once top-level when shared; row overrides allowed."
         )
     lines.append(f"- Row fields: {aliases_for(row_only_fields, alias_map)}.")
+    if required_fields:
+        lines.append(f"- Required row fields: {aliases_for(required_fields, alias_map)}.")
     lines.append("- Free-text detail fields must not repeat context, inherited values, or dedicated field values.")
     return "\n".join(lines)
 
@@ -808,6 +888,7 @@ def build_prompt(
     alias_map: dict[str, str] | None = None,
     root_alias: str = ROOT_KEY_ALIAS,
     inherited_fields: list[str] | None = None,
+    required_fields: list[str] | None = None,
 ) -> str:
     transaction_id_parent = Path(filename).stem
     fields = fields or DEFAULT_FIELDS
@@ -818,7 +899,13 @@ def build_prompt(
     alias_map = alias_map or generate_alias_map(
         model_alias_fields(fields, inherited_fields, python_filled_fields)
     )
-    json_shape_block = build_json_shape_block(fields, alias_map, root_alias, inherited_fields)
+    json_shape_block = build_json_shape_block(
+        fields,
+        alias_map,
+        root_alias,
+        inherited_fields,
+        required_fields,
+    )
     final_columns_section = ""
     if not rulebook_declares_columns:
         final_columns_section = "Final columns: " + ", ".join(fields) + "\n\n"
@@ -951,10 +1038,12 @@ def normalize_records(
     fields: list[str] | None = None,
     root_key: str = "records",
     inherited_fields: list[str] | None = None,
+    required_fields: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     fields = fields or DEFAULT_FIELDS
     _row_fields, shared_fields, top_level_fields = split_model_fields(fields, inherited_fields)
     inherited_fields = inherited_fields or []
+    required_fields = required_fields or []
     rows = data.get(root_key) or data.get("transactions") or data.get("records") or []
     top_level_values = {field: data.get(field) for field in top_level_fields}
     clean_rows = []
@@ -981,7 +1070,14 @@ def normalize_records(
                 clean[key] = None
 
         remove_redundant_detail(clean)
+        if any(is_missing_value(clean.get(field)) for field in required_fields):
+            continue
         clean_rows.append(clean)
+
+    for i, clean in enumerate(clean_rows, start=1):
+        for index_field in ("sub_id", "row_id", "row_number", "item_index"):
+            if index_field in clean:
+                clean[index_field] = i
 
     return clean_rows
 
@@ -1003,6 +1099,7 @@ def write_prompt_files(
     rules_text = load_rules_file(rules_file)
     fields, _field_types = parse_rulebook_columns(rules_text)
     inherited_fields = parse_rulebook_inherited_fields(rules_text, fields)
+    required_fields = parse_rulebook_required_fields(rules_text, fields, inherited_fields)
     root_key = root_key_for_fields(fields)
     alias_map = generate_alias_map(model_alias_fields(fields, inherited_fields))
     rulebook_declares_columns = rulebook_has_output_columns(rules_text)
@@ -1019,6 +1116,7 @@ def write_prompt_files(
             alias_map,
             ROOT_KEY_ALIAS,
             inherited_fields=inherited_fields,
+            required_fields=required_fields,
         )
         (output_dir / f"{path.stem}_prompt.txt").write_text(prompt + "\n", encoding="utf-8")
 
@@ -1056,6 +1154,7 @@ def process_folder(
     rules_text = load_rules_file(rules_file)
     fields, field_types = parse_rulebook_columns(rules_text)
     inherited_fields = parse_rulebook_inherited_fields(rules_text, fields)
+    required_fields = parse_rulebook_required_fields(rules_text, fields, inherited_fields)
     root_key = root_key_for_fields(fields)
     alias_map = generate_alias_map(model_alias_fields(fields, inherited_fields))
     schema = build_schema(
@@ -1065,6 +1164,7 @@ def process_folder(
         alias_map,
         ROOT_KEY_ALIAS,
         inherited_fields,
+        required_fields,
     )
     rulebook_declares_columns = rulebook_has_output_columns(rules_text)
     output_csv.parent.mkdir(parents=True, exist_ok=True)
@@ -1102,6 +1202,7 @@ def process_folder(
                     alias_map,
                     ROOT_KEY_ALIAS,
                     inherited_fields,
+                    required_fields,
                 )
                 if prompt_output_dir is not None:
                     prompt_file = prompt_output_dir / f"{transaction_id_parent}_prompt.txt"
@@ -1146,6 +1247,7 @@ def process_folder(
                             fields,
                             root_key,
                             inherited_fields,
+                            required_fields,
                         )
 
                         for row in rows:
