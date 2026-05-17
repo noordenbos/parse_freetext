@@ -1,64 +1,589 @@
 # parse-freetext
 
-`parse-freetext` is a local-first Python toolkit for turning free text into structured records with Ollama. It is meant for sensitive workflows where prompts, model calls, and outputs should stay on your own machine.
+Turn messy free text into structured CSV/JSON records using local LLMs with Ollama.
 
-The main workflow is:
+Private. Reproducible. Schema-driven.
 
-1. Put raw source data under `input/raw/<project>/`, or start from prepared `{id}.txt` files under `input/texts/<project>/`.
-2. Write a local rulebook that defines output columns and extraction rules, optionally with help from an LLM.
-3. Generate compact prompts with the toolkit.
-4. Inspect and optimize prompts interactively in Ollama.
-5. Run batched processing through a local Ollama model and write readable CSV/JSONL output.
+Built for sensitive workflows where prompts, source text, and outputs should stay on your own machine.
 
-Key folders:
+## Typical Use Cases
 
-- Raw input data: original spreadsheets, CSV/TSV files, or other source files. Recommended private path: `input/raw/<project>/`.
-- Prepared text input: `{id}.txt` files consumed by `parse-freetext-ollama`. Recommended private path: `input/texts/<project>/`.
-- Run output: CSV/JSONL/prompts/logs/metadata written by the parser. Default path: `output/<run>/`.
+- Medical and clinical note abstraction
+- Financial transaction extraction
+- Pathology and laboratory report parsing
+- Regulatory and compliance document processing
+- Research dataset normalization and clean-up
+- Investigation dossier extraction
+- Internal enterprise ETL (Extract, Transform, Load) workflows
+- Insurance claims and underwriting pipelines
+- Air-gapped or privacy-sensitive document processing
+- Structured extraction from PDFs, spreadsheets, and OCR text
 
-Helper tools can create prepared `.txt` input files from raw source formats. Today this repo includes `spreadsheet-helper` for `.xlsx`, `.csv`, and `.tsv`; future helpers may support other text sources.
+## Why Local?
 
-## Full Setup Walkthrough
+- Sensitive data never leaves your machine
+- No cloud API costs
+- Full control over prompts and models
+- Reproducible structured extraction
+- Offline capable
+- HIPAA / GDPR / enterprise compliance workflows
 
-These steps are written to be safe across macOS, Linux, and Windows. Follow the visible path first; open the collapsed sections when you need platform-specific commands, examples, or reference details.
+---
 
-### 1. Install Prerequisites
-
-Install Git and `uv`, then check both are available:
-
-```bash
-git --version
-uv --version
-```
+## Demo In 60 Seconds
 
 <details>
-<summary>Install Git and uv by platform</summary>
+<summary>Help! I do not have Git, Python, uv, or Ollama installed</summary>
 
-Install Git:
+This project uses:
 
-- macOS: install Xcode Command Line Tools with `xcode-select --install`, or install Git from [https://git-scm.com/downloads](https://git-scm.com/downloads).
-- Windows: install Git for Windows from [https://git-scm.com/downloads](https://git-scm.com/downloads).
-- Linux: install Git with your package manager, for example `sudo apt install git` on Debian/Ubuntu.
+- **Git** to download the project
+- **Python** to run it
+- **uv** to manage the Python environment
+- **Ollama** to run local AI models
 
-Install `uv`, the Python environment and package runner used by this project.
+---
 
-macOS/Linux:
+# 1. Install Git
+
+## macOS
+
+Install Apple Command Line Tools:
+
+```bash
+xcode-select --install
+```
+
+Or download Git manually:
+
+https://git-scm.com/downloads
+
+## Windows
+
+Install **Git for Windows**:
+
+https://git-scm.com/downloads
+
+The default installation settings are usually fine.
+
+## Linux
+
+### Debian / Ubuntu
+
+```bash
+sudo apt update
+sudo apt install git
+```
+
+### Fedora
+
+```bash
+sudo dnf install git
+```
+
+---
+
+# 2. Install Python
+
+We recommend **Python 3.11 or newer**.
+
+## macOS / Windows
+
+Download Python from:
+
+https://www.python.org/downloads/
+
+### Important for Windows
+
+During installation, enable:
+
+```text
+Add python.exe to PATH
+```
+
+## Linux
+
+### Debian / Ubuntu
+
+```bash
+sudo apt update
+sudo apt install python3 python3-pip
+```
+
+---
+
+# 3. Verify Python
+
+Check that Python works:
+
+```bash
+python --version
+```
+
+If that does not work, try:
+
+```bash
+python3 --version
+```
+
+---
+
+# 4. Install uv
+
+`uv` is the Python environment and package runner used by this project.
+
+## macOS / Linux
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Windows PowerShell:
+## Windows PowerShell
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-Close and reopen your terminal after installing `uv`.
+After installation:
+
+- Close and reopen your terminal
+- Then verify installation:
+
+```bash
+uv --version
+```
+
+---
+
+# 5. Install Ollama
+
+Ollama is used to run local AI models on your computer.
+
+Download:
+
+https://ollama.com/download
+
+## macOS / Linux
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+## Windows PowerShell
+
+```powershell
+irm https://ollama.com/install.ps1 | iex
+```
+
+Verify installation:
+
+```bash
+ollama --version
+```
+
+---
+
+# 6. Download a Model
+
+Example recommended models:
+
+## Balanced quality/speed
+
+```bash
+ollama pull qwen2.5:7b
+```
+
+## Smaller/faster systems
+
+```bash
+ollama pull llama3.2:3b
+```
+
+---
+
+# 7. Verify Everything
+
+Run:
+
+```bash
+git --version
+python --version
+uv --version
+ollama --version
+```
+
+If `python --version` fails, try:
+
+```bash
+python3 --version
+```
+
+You are now ready to continue with the project installation.
 
 </details>
 
-### 2. Clone The Repository
+Clone the repository:
+
+```bash
+git clone https://github.com/noordenbos/parse_freetext.git
+cd parse_freetext
+```
+
+Install dependencies:
+
+```bash
+uv sync --extra dev
+```
+
+Install Ollama and pull a model:
+
+```bash
+ollama pull qwen3.5:9b
+```
+
+Run a local extraction:
+
+```bash
+uv run parse-freetext-ollama input/texts/example_project \
+  --model qwen3.5:9b \
+  --output demo
+```
+
+Outputs:
+
+output/demo/demo.csv
+output/demo/demo.jsonl
+
+--
+
+## Example
+
+Input Free Text
+```Patient reports fever for 3 days. LDL 3.2 mmol/L.```
+
+Output CSV
+| clinical_item | value | unit   | qualitative_status |
+|---|---:|---|---|
+| fever |  |  | present |
+| LDL | 3.2 | mmol/L |  |
+
+<details>
+<summary>Computer readable outputs</summary>
+
+CSV
+```csv
+clinical_item,value,unit,qualitative_status
+fever,,,present
+LDL,3.2,mmol/L,	
+```
+
+JSON
+```json
+[
+  {
+    "clinical_item": "fever",
+    "qualitative_status": "present",
+    "details": "Patient reports fever for 3 days"
+  },
+  {
+    "clinical_item": "LDL",
+    "value": 3.2,
+    "unit": "mmol/L"
+  }
+]
+```
+</details>
+
+## Workflow Overview
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│ Raw input data support                                   │
+│ • Spreadsheets (.xlsx, .csv, .tsv)                       │
+│ • Plain text / copied clinical notes                     │
+│ • Portable Document Format (PDF) files (planned)         │
+└──────────────────────────────────────────────────────────┘
+                            ↓
+┌──────────────────────────────────────────────────────────┐
+│ Standardized intermediate text                           │
+│ • Prepared {id}.txt files                                │
+│ • Metadata-aware                                         │
+└──────────────────────────────────────────────────────────┘
+                            ↓
+┌──────────────────────────────────────────────────────────┐
+│ Rulebook optimization                                    │
+│ • Parsing quality                                        │
+│ • Token efficiency                                       │
+└──────────────────────────────────────────────────────────┘
+                            ↓
+┌──────────────────────────────────────────────────────────┐
+│ Batch inference pipeline                                 │
+│ • Fully local execution                                  │
+└──────────────────────────────────────────────────────────┘
+                            ↓
+┌──────────────────────────────────────────────────────────┐
+│ Structured outputs                                       │
+│ • Comma-separated values (CSV)                           │
+│ • JavaScript Object Notation (JSON / JSONL)              │
+│ • Quality control (QC) reports                           │
+│ • Run and resource summaries                             │
+└──────────────────────────────────────────────────────────┘
+```
+
+# Choosing A Model
+
+- Ollama Model Library: [ollama model library](https://ollama.com/library)
+
+The field of open source models is rapidly evolving,
+some of the models we had success with:
+
+| Model | Approx. Size | Speed | Quality | Recommended Use |
+|---|---|---|---|---|
+| `qwen3.6:latest` | ~23 GB | Very Fast | Excellent | Best performance if VRAM permits |
+| `qwen3.5:9b` | ~7 GB | Good | Excellent | Best overall default for structured extraction |
+| `mistral` | ~4 GB | Good | Good | Lightweight systems |
+
+Useful project for estimating local model compatibility and performance: [canirun.ai](https://canirun.ai)
+
+---
+
+# Hardware Recommendations
+
+<details>
+<summary>Consumer laptops and desktops</summary>
+  
+| Hardware Profile | GPU Available | Recommended VRAM | Recommended Models | Notes |
+|---|---|---|---|---|
+| Older laptop / office PC | No | System RAM only | `mistral` | CPU-only inference, best for lightweight extraction |
+| Consumer laptop with entry GPU | Yes | 4–8 GB VRAM | `mistral`, small `llama3` | Good balance for portable systems |
+| Mid-range gaming laptop / desktop | Yes | 8–12 GB VRAM | `qwen3.5:9b` | Ideal sweet spot for most users |
+| High-end gaming desktop | Yes | 16–24 GB VRAM | `qwen3.5:9b` | Supports larger context windows and parallel tasks |
+| Apple Silicon MacBook Pro | Shared GPU memory | 18–48 GB unified memory | `qwen3.5:9b` | Excellent local inference efficiency |
+</details>
+
+---
+
+<details>
+<summary>Professional and workstation setups</summary>
+
+| Hardware Profile | GPU Available | Recommended VRAM | Recommended Models | Notes |
+|---|---|---|---|---|
+| Professional workstation | Yes | 24–48 GB VRAM | `qwen3.5:9b` | Large-scale extraction and batch processing |
+| Multi-GPU AI workstation | Yes | 48+ GB VRAM | Multiple concurrent models | Parallel inference and very large contexts |
+| CPU-heavy server | Optional | Large system RAM | `qwen3.5:9b` | Useful for automation pipelines |
+| Dedicated AI server | Yes | 80+ GB VRAM | Large future models | Enterprise-scale workloads |
+</details>
+
+---
+
+## Key Features
+
+- Local-first structured extraction
+- Schema-driven prompting
+- Compact prompt optimization
+- CSV and JSONL output
+- Rulebook-based extraction logic
+- Deterministic low-temperature workflows
+- Retry handling and session logging
+- Model-agnostic Ollama backend
+
+---
+
+# Installation
+
+These steps are written to be safe across macOS, Linux, and Windows. Follow the visible path first; open the collapsed sections when you need platform-specific commands, examples, or reference details.
+
+<details>
+<summary>Need help installing Git, Python, uv, or Ollama?</summary>
+
+This project uses:
+
+- **Git** to download the project
+- **Python** to run it
+- **uv** to manage the Python environment
+- **Ollama** to run local AI models
+
+---
+
+# 1. Install Git
+
+## macOS
+
+Install Apple Command Line Tools:
+
+```bash
+xcode-select --install
+```
+
+Or download Git manually:
+
+https://git-scm.com/downloads
+
+## Windows
+
+Install **Git for Windows**:
+
+https://git-scm.com/downloads
+
+The default installation settings are usually fine.
+
+## Linux
+
+### Debian / Ubuntu
+
+```bash
+sudo apt update
+sudo apt install git
+```
+
+### Fedora
+
+```bash
+sudo dnf install git
+```
+
+---
+
+# 2. Install Python
+
+We recommend **Python 3.11 or newer**.
+
+## macOS / Windows
+
+Download Python from:
+
+https://www.python.org/downloads/
+
+### Important for Windows
+
+During installation, enable:
+
+```text
+Add python.exe to PATH
+```
+
+## Linux
+
+### Debian / Ubuntu
+
+```bash
+sudo apt update
+sudo apt install python3 python3-pip
+```
+
+---
+
+# 3. Verify Python
+
+Check that Python works:
+
+```bash
+python --version
+```
+
+If that does not work, try:
+
+```bash
+python3 --version
+```
+
+---
+
+# 4. Install uv
+
+`uv` is the Python environment and package runner used by this project.
+
+## macOS / Linux
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+## Windows PowerShell
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+After installation:
+
+- Close and reopen your terminal
+- Then verify installation:
+
+```bash
+uv --version
+```
+
+---
+
+# 5. Install Ollama
+
+Ollama is used to run local AI models on your computer.
+
+Download:
+
+https://ollama.com/download
+
+## macOS / Linux
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+## Windows PowerShell
+
+```powershell
+irm https://ollama.com/install.ps1 | iex
+```
+
+Verify installation:
+
+```bash
+ollama --version
+```
+
+---
+
+# 6. Download a Model
+
+Example recommended models:
+
+## Balanced quality/speed
+
+```bash
+ollama pull qwen2.5:7b
+```
+
+## Smaller/faster systems
+
+```bash
+ollama pull llama3.2:3b
+```
+
+---
+
+# 7. Verify Everything
+
+Run:
+
+```bash
+git --version
+python --version
+uv --version
+ollama --version
+```
+
+If `python --version` fails, try:
+
+```bash
+python3 --version
+```
+
+You are now ready to continue with the project installation.
+
+</details>
+
+### 1. Clone The Repository
 
 Using SSH:
 
@@ -74,7 +599,7 @@ git clone https://github.com/noordenbos/parse_freetext.git
 cd parse_freetext
 ```
 
-### 3. Install The Python Environment
+### 2. Install The Python Environment
 
 Install the project and its development/test dependencies:
 
@@ -95,7 +620,7 @@ Run the test suite:
 uv run pytest
 ```
 
-### 4. Prepare Text Files
+### 3. Prepare Text Files
 
 If you already have prepared free text files, put them in a folder like this:
 
@@ -151,7 +676,7 @@ The helper also accepts `.csv` and `.tsv` files. For those formats, the first ro
 
 </details>
 
-### 5. Add A Local Rulebook
+### 4. Add A Local Rulebook
 
 Create a local rulebook from the non-sensitive example:
 
